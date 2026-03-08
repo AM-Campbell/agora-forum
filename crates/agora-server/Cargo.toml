@@ -1,0 +1,23 @@
+[package]
+name = "agora-server"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "agora-server"
+path = "src/main.rs"
+
+[dependencies]
+agora-common = { path = "../agora-common" }
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+base64 = "0.22"
+tower-http = { version = "0.5", features = ["set-header", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }

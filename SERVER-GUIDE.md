@@ -1,0 +1,377 @@
+# Agora — Server Guide
+
+How to set up and run your own Agora forum server.
+
+## Prerequisites
+
+- **Rust toolchain** — install via [rustup](https://rustup.rs/)
+- **Tor** — for exposing the server as a hidden service
+- **Linux or macOS** — the server runs on both; Linux recommended for production
+
+## Building
+
+```bash
+git clone <repo-url> && cd agora-forum
+cargo build --release
+```
+
+This produces two binaries:
+
+- `target/release/agora-server` — the forum server
+- `target/release/agora` — the client
+
+## First Run
+
+```bash
+./agora-server
+```
+
+On first run, the server:
+
+1. Creates the SQLite database (`agora.db` by default)
+2. Runs all schema migrations
+3. Creates three default boards: **general**, **meta**, **off-topic**
+4. Prints a bootstrap invite code to stdout:
+
+```
+BOOTSTRAP INVITE CODE: a1b2c3d4e5f6g7h8
+AGORA server listening on 127.0.0.1:8080
+```
+
+**Save this invite code.** The first user to register with it becomes the forum admin.
+
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `AGORA_NAME` | *(none)* | Your forum's name, shown to users in the client (e.g. "Book Club") |
+| `AGORA_DB` | `agora.db` | Path to the SQLite database file |
+| `AGORA_BIND` | `127.0.0.1:8080` | Address and port to listen on |
+
+Example:
+
+```bash
+AGORA_NAME="Book Club" AGORA_DB=/var/lib/agora/forum.db AGORA_BIND=127.0.0.1:3000 ./agora-server
+```
+
+If `AGORA_NAME` is set, the client displays it in the header bar instead of the server address. Users see "Book Club" instead of "http://xxxxx.onion".
+
+The server always binds to localhost — Tor handles external exposure.
+
+## Setting Up Tor
+
+### Install Tor
+
+```bash
+# Debian/Ubuntu
+sudo apt install tor
+
+# Arch
+sudo pacman -S tor
+
+# macOS
+brew install tor
+```
+
+### Configure the Hidden Service
+
+Edit your Tor config (usually `/etc/tor/torrc`):
+
+```
+HiddenServiceDir /var/lib/tor/agora/
+HiddenServicePort 80 127.0.0.1:8080
+```
+
+Make sure the port matches your `AGORA_BIND` setting.
+
+### Start Tor
+
+```bash
+# systemd (Debian/Ubuntu/Arch)
+sudo systemctl enable --now tor
+
+# macOS
+brew services start tor
+```
+
+### Get Your .onion Address
+
+```bash
+sudo cat /var/lib/tor/agora/hostname
+```
+
+This is the address you'll give to users. It looks like: `abc123def456xyz789.onion`
+
+## Registering the First User (Admin)
+
+On a machine with Tor and the client binary:
+
+```bash
+agora setup
+```
+
+Enter:
+- **Server address**: `http://your-address.onion`
+- **Invite code**: the bootstrap code from first run
+- **Username**: your chosen name
+
+This user is automatically assigned the **admin** role.
+
+## Managing Boards
+
+Boards are created during database seeding. To customize them, use SQLite directly:
+
+```bash
+sqlite3 agora.db
+```
+
+```sql
+-- Add a new board
+INSERT INTO boards (slug, name, description, sort_order)
+VALUES ('books', 'Books', 'Book recommendations and discussion', 3);
+
+-- Rename a board
+UPDATE boards SET name = 'Philosophy', description = 'Philosophical inquiry' WHERE slug = 'general';
+
+-- Reorder boards (lower sort_order = higher in list)
+UPDATE boards SET sort_order = 0 WHERE slug = 'books';
+UPDATE boards SET sort_order = 1 WHERE slug = 'meta';
+UPDATE boards SET sort_order = 2 WHERE slug = 'general';
+UPDATE boards SET sort_order = 3 WHERE slug = 'off-topic';
+
+-- Delete an empty board (will fail if board has threads due to foreign key)
+DELETE FROM boards WHERE slug = 'off-topic' AND id NOT IN (SELECT board_id FROM threads);
+```
+
+Changes take effect immediately — no restart needed (SQLite WAL mode).
+
+## Moderation
+
+### Roles
+
+| Role | Thread mod | Post mod | Ban users | Set roles |
+|---|---|---|---|---|
+| admin | yes | yes | yes | yes |
+| mod | yes | yes | yes | no |
+| member | no | no | no | no |
+
+### Promoting Users
+
+The admin can promote users via the client:
+
+```bash
+# Make someone a moderator
+agora mod set-role alice mod
+
+# Make someone an admin
+agora mod set-role alice admin
+```
+
+Or directly in the database:
+
+```sql
+UPDATE users SET role = 'mod' WHERE username = 'alice';
+```
+
+### Moderation Actions
+
+```bash
+# Pin/unpin a thread
+agora mod pin 42
+agora mod unpin 42
+
+# Lock/unlock a thread (prevents new replies)
+agora mod lock 42
+agora mod unlock 42
+
+# Soft-delete/restore a post
+agora mod delete 42 7
+agora mod restore 42 7
+
+# Ban/unban a user
+agora mod ban spammer
+agora mod unban spammer
+```
+
+Soft-deleted posts show "[This post has been deleted by a moderator]" to users. The content is preserved in the database and can be restored.
+
+## Backups
+
+The entire forum state lives in a single SQLite file. Back it up with:
+
+```bash
+sqlite3 agora.db ".backup /path/to/backup.db"
+```
+
+Or simply copy the file (safe with WAL mode as long as the `-wal` and `-shm` files are included):
+
+```bash
+cp agora.db agora.db-wal agora.db-shm /path/to/backup/
+```
+
+Automate with cron:
+
+```bash
+# Daily backup at 3am
+0 3 * * * sqlite3 /var/lib/agora/forum.db ".backup /var/lib/agora/backups/forum-$(date +\%Y\%m\%d).db"
+```
+
+## Distributing Client Binaries
+
+The server can host client binaries for users to download over Tor. Place cross-compiled binaries in a `static/` directory next to the server:
+
+```bash
+mkdir -p static/
+
+# Cross-compile for different platforms (example)
+cargo build --release --bin agora --target x86_64-unknown-linux-gnu
+cp target/x86_64-unknown-linux-gnu/release/agora static/agora-linux-x86_64
+
+cargo build --release --bin agora --target aarch64-unknown-linux-gnu
+cp target/aarch64-unknown-linux-gnu/release/agora static/agora-linux-aarch64
+```
+
+Users can then download the client via Tor:
+
+```bash
+torsocks curl -o agora http://your-address.onion/download/agora-linux-x86_64
+chmod +x agora
+```
+
+The `GET /` landing page automatically shows download instructions.
+
+## Running as a Service
+
+### systemd
+
+Create `/etc/systemd/system/agora.service`:
+
+```ini
+[Unit]
+Description=Agora Forum Server
+After=network.target tor.service
+
+[Service]
+Type=simple
+User=agora
+Group=agora
+WorkingDirectory=/var/lib/agora
+Environment=AGORA_NAME=My Forum
+Environment=AGORA_DB=/var/lib/agora/forum.db
+Environment=AGORA_BIND=127.0.0.1:8080
+ExecStart=/usr/local/bin/agora-server
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/agora
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Set up:
+
+```bash
+# Create user and directory
+sudo useradd -r -s /usr/sbin/nologin agora
+sudo mkdir -p /var/lib/agora
+sudo chown agora:agora /var/lib/agora
+
+# Install binary
+sudo cp target/release/agora-server /usr/local/bin/
+
+# Enable and start
+sudo systemctl enable --now agora
+```
+
+Check status:
+
+```bash
+sudo systemctl status agora
+sudo journalctl -u agora -f
+```
+
+## Security Notes
+
+- The server only binds to localhost. Tor handles all external access.
+- There are no admin passwords or server-side secrets. All authentication is via client-side ed25519 signatures.
+- The SQLite database contains all forum data including attachment BLOBs. Protect it accordingly.
+- Rate limiting is built in: 120 requests/minute and 10 posts/minute per user.
+- Invite codes are single-use. Each user can have at most 5 unused invites at a time. The invite tree is tracked (`invited_by` column) so you can trace who invited a bad actor.
+- The server sets `X-Content-Type-Options: nosniff` and `X-Frame-Options: DENY` on all responses.
+- Attachment content types are validated against an allowlist. Unrecognized types are served as `application/octet-stream`.
+
+## Monitoring
+
+The server logs to stdout. Use `journalctl` (with systemd) or redirect output to a file.
+
+Check if the server is responding:
+
+```bash
+# From the server machine
+curl http://127.0.0.1:8080/version
+
+# From a client machine (over Tor)
+agora status
+```
+
+Check database size:
+
+```bash
+ls -lh agora.db
+```
+
+Check user count and activity:
+
+```bash
+sqlite3 agora.db "SELECT COUNT(*) FROM users WHERE is_banned = 0;"
+sqlite3 agora.db "SELECT COUNT(*) FROM users WHERE last_seen_at > datetime('now', '-7 days');"
+```
+
+## Database Maintenance
+
+SQLite is low-maintenance, but for large forums:
+
+```bash
+# Reclaim space after many deletions
+sqlite3 agora.db "VACUUM;"
+
+# Check database integrity
+sqlite3 agora.db "PRAGMA integrity_check;"
+
+# See database size breakdown
+sqlite3 agora.db "SELECT name, SUM(pgsize) FROM dbstat GROUP BY name ORDER BY 2 DESC;"
+```
+
+## Local Development (No Tor)
+
+For testing without Tor:
+
+```bash
+# Terminal 1: Start server
+cargo run --bin agora-server
+
+# Terminal 2: Register (non-.onion addresses skip SOCKS proxy automatically)
+cargo run --bin agora -- setup
+# Server address: http://127.0.0.1:8080
+# Invite code: (paste bootstrap code)
+# Username: testuser
+
+# Run integration tests
+python3 tests/test_e2e.py
+```
+
+## Troubleshooting
+
+**"BOOTSTRAP INVITE CODE" not printed**: The database already exists from a previous run. Delete `agora.db` to start fresh, or check for existing users: `sqlite3 agora.db "SELECT * FROM invite_codes WHERE used_by IS NULL;"`
+
+**Client can't connect**: Verify Tor is running (`systemctl status tor`), the hidden service is configured, and the `.onion` address is correct. The client auto-detects SOCKS5 proxy on ports 9050 and 9150.
+
+**"Offline" in client TUI**: The server is unreachable. Check that the server process is running, Tor is up, and the SOCKS5 proxy is accessible.
+
+**Database locked errors**: This shouldn't happen with WAL mode, but if it does, ensure only one server process is running against the same database file.

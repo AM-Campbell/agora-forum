@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/agora-common",
+    "crates/agora-server",
+    "crates/agora-client",
+]
