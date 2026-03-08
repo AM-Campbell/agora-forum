@@ -67,6 +67,7 @@ agora-server invite-code
 | Variable | Default | Description |
 |---|---|---|
 | `AGORA_NAME` | *(none)* | Your forum's name, shown to users in the client (e.g. "Book Club") |
+| `AGORA_URL` | *(none)* | Your `.onion` address, used in the landing page download instructions |
 | `AGORA_DB` | `agora.db` | Path to the SQLite database file |
 | `AGORA_BIND` | `127.0.0.1:8080` | Address and port to listen on |
 
@@ -139,6 +140,7 @@ User=agora
 Group=agora
 WorkingDirectory=/var/lib/agora
 Environment=AGORA_NAME=My Forum
+Environment=AGORA_URL=http://your-address.onion
 Environment=AGORA_DB=/var/lib/agora/forum.db
 Environment=AGORA_BIND=127.0.0.1:8080
 ExecStart=/usr/local/bin/agora-server
@@ -195,26 +197,76 @@ Enter:
 
 This user is automatically assigned the **admin** role.
 
-## Migrating to a New Server
+## Migrating to a New Machine
 
-To move your forum to a new machine (or a new .onion address):
+There are two ways to migrate: keeping your existing `.onion` address (recommended) or getting a new one.
 
-1. **Stop the old server**: `sudo systemctl stop agora`
+### Option A: Keep the Same Address (Recommended)
 
-2. **Copy the database**: Use the safe backup method:
-   ```bash
-   sqlite3 /var/lib/agora/forum.db ".backup /tmp/agora-backup.db"
-   ```
-   Copy `agora-backup.db` to the new machine.
+Users don't need to change anything. You copy both the database and Tor's identity keys to the new machine.
 
-3. **Set up the new server**: Run `install-server.sh` and when prompted for an existing database, provide the path to the backup file. Or if setting up manually, set `AGORA_DB` to point at the copied file.
+**On the old machine:**
 
-4. **Tell your users**: They need to update their client config:
-   ```bash
-   agora servers update-address http://old-address.onion http://new-address.onion
-   ```
+```bash
+# 1. Stop the server
+sudo systemctl stop agora
 
-The database is fully portable — all user accounts, posts, and attachments are in that single file.
+# 2. Back up the database
+sqlite3 /var/lib/agora/forum.db ".backup /tmp/agora-backup.db"
+
+# 3. Copy the Tor hidden service keys
+sudo cp -r /var/lib/tor/agora /tmp/agora-tor-keys
+sudo chown $USER /tmp/agora-tor-keys/*
+```
+
+Copy both `/tmp/agora-backup.db` and the `/tmp/agora-tor-keys/` folder to the new machine.
+
+**On the new machine:**
+
+```bash
+# Build or download the server binary, then run the install script:
+sudo ./install-server.sh
+```
+
+The install script will prompt you for:
+- **Forum name** — same as before
+- **Path to existing database** — point to your `agora-backup.db`
+- **Path to old Tor hidden service dir** — point to your `agora-tor-keys/` folder
+
+The script copies the Tor keys so your `.onion` address stays the same. Users connect as before with no changes needed.
+
+### Option B: New Address
+
+If you don't have the old Tor keys, or you want a fresh `.onion` address.
+
+**On the old machine:**
+
+```bash
+sudo systemctl stop agora
+sqlite3 /var/lib/agora/forum.db ".backup /tmp/agora-backup.db"
+```
+
+Copy `agora-backup.db` to the new machine.
+
+**On the new machine:**
+
+```bash
+sudo ./install-server.sh
+```
+
+Provide the database path when prompted, but leave the Tor hidden service directory blank. Tor will generate a new `.onion` address.
+
+**Tell your users** to update their client config. They can run `agora servers` to see their current server addresses, then:
+
+```bash
+agora servers update-address http://old-address.onion http://new-address.onion
+```
+
+### Notes
+
+- The database is fully portable — all user accounts, posts, and attachments are in that single file.
+- If your forum has many attachments, the database can be large (multiple GB). The `sqlite3 .backup` command handles this safely but may take a few minutes.
+- Always verify the backup before decommissioning the old machine: `sqlite3 agora-backup.db "PRAGMA integrity_check;"`
 
 ## Managing Boards
 
@@ -299,23 +351,26 @@ Soft-deleted posts show "[This post has been deleted by a moderator]" to users. 
 The entire forum state lives in a single SQLite file. Back it up with:
 
 ```bash
+mkdir -p /var/lib/agora/backups
 sqlite3 /var/lib/agora/forum.db ".backup /var/lib/agora/backups/forum-$(date +%Y%m%d).db"
 ```
 
-Or simply copy the file when the server is stopped:
-
-```bash
-sudo systemctl stop agora
-cp /var/lib/agora/forum.db /path/to/backup/
-sudo systemctl start agora
-```
+The `.backup` command is safe to run while the server is running (it handles WAL correctly).
 
 Automate with cron:
 
 ```bash
-# Daily backup at 3am
-0 3 * * * sqlite3 /var/lib/agora/forum.db ".backup /var/lib/agora/backups/forum-$(date +\%Y\%m\%d).db"
+# Daily backup at 3am, keep last 14 days
+0 3 * * * sqlite3 /var/lib/agora/forum.db ".backup /var/lib/agora/backups/forum-$(date +\%Y\%m\%d).db" && find /var/lib/agora/backups -name "forum-*.db" -mtime +14 -delete
 ```
+
+For disaster recovery, also back up your Tor hidden service keys:
+
+```bash
+sudo cp -r /var/lib/tor/agora /var/lib/agora/backups/tor-keys
+```
+
+If you lose these keys, your `.onion` address changes permanently and all users must run `agora servers update-address`.
 
 ## Distributing Client Binaries
 

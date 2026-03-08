@@ -28,7 +28,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let inner = header_block.inner(chunks[0]);
     f.render_widget(header_block, chunks[0]);
 
-    let header = Row::new(vec!["", "Title", "Author", "Posts", "Latest"])
+    let header = Row::new(vec!["", "#", "Title", "Author", "Posts", "Latest"])
         .style(Style::default().add_modifier(Modifier::BOLD));
 
     let rows: Vec<Row> = app
@@ -68,6 +68,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
             Row::new(vec![
                 marker.to_string(),
+                format!("{}", t.id),
                 title,
                 author,
                 format!("{}", t.post_count),
@@ -79,7 +80,8 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
     let widths = [
         Constraint::Length(2),
-        Constraint::Length(30),
+        Constraint::Length(5),
+        Constraint::Length(28),
         Constraint::Length(14),
         Constraint::Length(6),
         Constraint::Min(10),

@@ -78,13 +78,13 @@ enum Commands {
     },
     /// Edit a post
     #[command(after_help = "Examples:
-  agora edit 42 3               Edit post 3 in thread 42 (opens $EDITOR)
+  agora edit 42 3               Edit post #3 in thread 42 (opens $EDITOR)
   agora edit 42 3 -f new.txt    Replace body with file content")]
     Edit {
         /// Thread ID
         thread_id: i64,
-        /// Post ID
-        post_id: i64,
+        /// Post number (the [#N] shown in the thread)
+        post_number: i64,
         /// Read new body from file (use - for stdin)
         #[arg(short, long)]
         file: Option<String>,
@@ -93,8 +93,8 @@ enum Commands {
     History {
         /// Thread ID
         thread_id: i64,
-        /// Post ID
-        post_id: i64,
+        /// Post number (the [#N] shown in the thread)
+        post_number: i64,
     },
     /// Generate a new invite code
     Invite,
@@ -147,12 +147,12 @@ enum Commands {
     },
     /// Attach a file to a post
     #[command(after_help = "Example:
-  agora attach 42 1 photo.jpg     Attach photo.jpg to post 1 in thread 42")]
+  agora attach 42 1 photo.jpg     Attach photo.jpg to post #1 in thread 42")]
     Attach {
         /// Thread ID
         thread_id: i64,
-        /// Post ID
-        post_id: i64,
+        /// Post number (the [#N] shown in the thread)
+        post_number: i64,
         /// Path to file to attach
         file_path: String,
     },
@@ -168,12 +168,12 @@ enum Commands {
     #[command(after_help = "Valid reactions: thumbsup, check, heart, think, laugh
 
 Example:
-  agora react 42 1 heart          React with heart to post 1 in thread 42")]
+  agora react 42 1 heart          React with heart to post #1 in thread 42")]
     React {
         /// Thread ID
         thread_id: i64,
-        /// Post ID
-        post_id: i64,
+        /// Post number (the [#N] shown in the thread)
+        post_number: i64,
         /// Reaction name
         reaction: String,
     },
@@ -273,12 +273,12 @@ enum ModAction {
     /// Delete a post (soft delete)
     Delete {
         thread_id: i64,
-        post_id: i64,
+        post_number: i64,
     },
     /// Restore a deleted post
     Restore {
         thread_id: i64,
-        post_id: i64,
+        post_number: i64,
     },
     /// Ban a user
     Ban {
@@ -372,6 +372,22 @@ fn build_api(
     }
 }
 
+/// Resolve a post number (the [#N] users see) to the database post ID.
+async fn resolve_post_id(api: &api::ApiClient, thread_id: i64, post_number: i64) -> Result<i64, String> {
+    let mut page = 1;
+    loop {
+        let resp = api.get_thread(thread_id, page).await?;
+        if let Some(post) = resp.posts.iter().find(|p| p.post_number == post_number) {
+            return Ok(post.id);
+        }
+        if page >= resp.total_pages {
+            break;
+        }
+        page += 1;
+    }
+    Err(format!("Post #{} not found in thread {}", post_number, thread_id))
+}
+
 async fn run_authenticated(cmd: Commands, override_server: Option<&str>) -> Result<(), String> {
     let server_addr = resolve_server(override_server)?;
     let global = config::GlobalConfig::load_or_default();
@@ -394,13 +410,19 @@ async fn run_authenticated(cmd: Commands, override_server: Option<&str>) -> Resu
         }
         Commands::Edit {
             thread_id,
-            post_id,
+            post_number,
             file,
-        } => cli::edit::run(&api, thread_id, post_id, file.as_deref()).await,
+        } => {
+            let post_id = resolve_post_id(&api, thread_id, post_number).await?;
+            cli::edit::run(&api, thread_id, post_id, file.as_deref()).await
+        }
         Commands::History {
             thread_id,
-            post_id,
-        } => cli::edit::history(&api, thread_id, post_id).await,
+            post_number,
+        } => {
+            let post_id = resolve_post_id(&api, thread_id, post_number).await?;
+            cli::edit::history(&api, thread_id, post_id).await
+        }
         Commands::Invite => cli::invite::generate(&api).await,
         Commands::Invites => cli::invite::list(&api).await,
         Commands::Status => {
@@ -446,18 +468,24 @@ async fn run_authenticated(cmd: Commands, override_server: Option<&str>) -> Resu
         Commands::Bookmark { thread_id } => cli::bookmark::toggle(&api, thread_id).await,
         Commands::Attach {
             thread_id,
-            post_id,
+            post_number,
             file_path,
-        } => cli::attach::upload(&api, thread_id, post_id, &file_path).await,
+        } => {
+            let post_id = resolve_post_id(&api, thread_id, post_number).await?;
+            cli::attach::upload(&api, thread_id, post_id, &file_path).await
+        }
         Commands::Download {
             attachment_id,
             output,
         } => cli::attach::download(&api, attachment_id, output.as_deref()).await,
         Commands::React {
             thread_id,
-            post_id,
+            post_number,
             reaction,
-        } => cli::react::run(&api, thread_id, post_id, &reaction).await,
+        } => {
+            let post_id = resolve_post_id(&api, thread_id, post_number).await?;
+            cli::react::run(&api, thread_id, post_id, &reaction).await
+        }
         Commands::Bio { text } => cli::bio::run(&api, &text).await,
         Commands::Mentions => cli::mentions::run(&api).await,
         Commands::Mod { action } => {
@@ -478,11 +506,13 @@ async fn run_authenticated(cmd: Commands, override_server: Option<&str>) -> Resu
                     let resp = api.mod_thread(thread_id, "unlock").await?;
                     println!("{}", resp.message);
                 }
-                ModAction::Delete { thread_id, post_id } => {
+                ModAction::Delete { thread_id, post_number } => {
+                    let post_id = resolve_post_id(&api, thread_id, post_number).await?;
                     let resp = api.mod_post(thread_id, post_id, "delete").await?;
                     println!("{}", resp.message);
                 }
-                ModAction::Restore { thread_id, post_id } => {
+                ModAction::Restore { thread_id, post_number } => {
+                    let post_id = resolve_post_id(&api, thread_id, post_number).await?;
                     let resp = api.mod_post(thread_id, post_id, "restore").await?;
                     println!("{}", resp.message);
                 }

@@ -60,9 +60,9 @@ const TUI: &str = r#"
     k / Up      Move up
     Enter       Open board (list threads)
     i           View invites
-    m           View members
-    M           View messages (DMs)
-    B           View bookmarks
+    w           Who's online / members
+    m           View messages (DMs)
+    b           View bookmarks
     @           View mentions
 
   THREAD LIST
@@ -78,17 +78,20 @@ const TUI: &str = r#"
     Space       Page down
     g / G       Jump to top / bottom
     n           Reply to thread
-    s           Select post mode
+    Tab         Enter post selection mode
     b           Toggle bookmark
+    e           Edit your last post
 
-  POST SELECTION (press s in thread view)
+  POST SELECTION (press Tab in thread view)
     j / k       Move between posts
-    r           Reply to selected post
-    e           Edit your post
-    y           Copy post text
-    a           Attach file to post
+    R           Reply to selected post
     +           React to post
     Esc         Exit selection mode
+
+  INVITES (press i)
+    g           Generate new invite code
+    y           Copy invite code to clipboard
+    j / k       Navigate
 
   SERVER PICKER (press S)
     j / k       Move between servers

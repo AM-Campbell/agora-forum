@@ -6,10 +6,41 @@ use ratatui::{
     Frame,
 };
 
-use crate::tui::app::App;
+use crate::cli::image::is_displayable_image;
+use crate::tui::app::{App, CachedImage};
 use crate::tui::boards::format_relative_time;
 
-pub fn render(f: &mut Frame, app: &App, area: Rect) {
+/// Maximum height (in terminal rows) for an inline image.
+const MAX_IMAGE_HEIGHT: u16 = 20;
+
+/// A segment of thread content: either text lines or an inline image.
+enum Segment<'a> {
+    Text(Vec<Line<'a>>),
+    Image { attachment_id: i64, height: u16 },
+}
+
+impl Segment<'_> {
+    fn height(&self) -> u16 {
+        match self {
+            Segment::Text(lines) => lines.len() as u16,
+            Segment::Image { height, .. } => *height,
+        }
+    }
+}
+
+/// Calculate image display height maintaining aspect ratio, capped at MAX_IMAGE_HEIGHT.
+fn image_display_height(img: &image::DynamicImage, available_width: u16) -> u16 {
+    let (iw, ih) = (img.width() as f64, img.height() as f64);
+    if iw == 0.0 || ih == 0.0 {
+        return 1;
+    }
+    // Terminal cells are roughly 2:1 (height:width in pixels), so we divide by 2
+    let aspect = ih / iw / 2.0;
+    let h = (available_width as f64 * aspect).round() as u16;
+    h.max(1).min(MAX_IMAGE_HEIGHT)
+}
+
+pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
         .constraints([Constraint::Min(1), Constraint::Length(3)])
         .split(area);
@@ -42,7 +73,12 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    let location = format!("{} › {}{}", board_slug, title_display, flags);
+    let thread_id = app
+        .current_thread
+        .as_ref()
+        .map(|t| t.id)
+        .unwrap_or(0);
+    let location = format!("{} › {} (#{}){}",  board_slug, title_display, thread_id, flags);
     let header_block = Block::default()
         .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
         .title(app.header_title(&location));
@@ -50,12 +86,16 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let inner = header_block.inner(chunks[0]);
     f.render_widget(header_block, chunks[0]);
 
-    // Build post content as lines
-    let mut lines: Vec<Line> = Vec::new();
+    let has_picker = app.image_picker.is_some();
+
+    // Build segments
+    let mut segments: Vec<Segment> = Vec::new();
     let mut prev_post_id: Option<i64> = None;
 
     for (post_idx, post) in app.posts.iter().enumerate() {
-        // NEW divider: insert before first post that's newer than last-read
+        let mut lines: Vec<Line> = Vec::new();
+
+        // NEW divider
         if let Some(last_read_id) = app.last_read_post_id {
             let prev_is_old = prev_post_id.map(|pid| pid <= last_read_id).unwrap_or(true);
             if post.id > last_read_id && prev_is_old && prev_post_id.is_some() {
@@ -78,11 +118,9 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         prev_post_id = Some(post.id);
 
         let time = format_relative_time(&post.created_at);
-
-        // Post-selection indicator
         let cursor_indicator = if app.post_cursor == Some(post_idx) { "▶ " } else { "  " };
 
-        // Post header with edit/deleted indicators
+        // Post header
         let mut header_spans = vec![
             Span::styled(
                 format!("{}[#{}] {}", cursor_indicator, post.post_number, post.author),
@@ -133,7 +171,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             lines.extend(body_lines);
         }
 
-        // Reactions (skip for deleted posts)
+        // Reactions
         if !post.is_deleted && !post.reactions.is_empty() {
             let mut reaction_spans: Vec<Span> = vec![Span::raw("  ")];
             for rc in &post.reactions {
@@ -155,36 +193,139 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             lines.push(Line::from(reaction_spans));
         }
 
-        // Attachments
-        if !post.attachments.is_empty() {
-            lines.push(Line::from(""));
+        // Push text lines accumulated so far as a segment
+        if !lines.is_empty() {
+            segments.push(Segment::Text(lines));
+        }
+
+        // Attachments — interleave text labels with image segments
+        if !post.is_deleted && !post.attachments.is_empty() {
+            let mut att_text: Vec<Line> = vec![Line::from("")];
             for att in &post.attachments {
-                lines.push(Line::from(Span::styled(
-                    format!(
-                        "  📎 {} ({}, {:.1} KB)",
-                        att.filename,
-                        att.content_type,
-                        att.size_bytes as f64 / 1024.0
-                    ),
-                    Style::default().fg(Color::Cyan),
-                )));
+                let is_image = is_displayable_image(&att.content_type);
+                let cached = app.image_cache.contains_key(&att.id);
+
+                if is_image && cached && has_picker {
+                    // Flush any pending text lines
+                    if !att_text.is_empty() {
+                        segments.push(Segment::Text(std::mem::take(&mut att_text)));
+                    }
+                    // Add image segment — extract DynamicImage for height calc
+                    let h = match &app.image_cache[&att.id] {
+                        CachedImage::Raw(img) => image_display_height(img, inner.width.saturating_sub(4)),
+                        CachedImage::Protocol(_) => MAX_IMAGE_HEIGHT, // fallback
+                    };
+                    segments.push(Segment::Image {
+                        attachment_id: att.id,
+                        height: h,
+                    });
+                    // Filename caption below image
+                    att_text.push(Line::from(Span::styled(
+                        format!("  {} ({:.1} KB)  agora download {}", att.filename, att.size_bytes as f64 / 1024.0, att.id),
+                        Style::default().add_modifier(Modifier::DIM),
+                    )));
+                } else if is_image && has_picker && !cached {
+                    // Image protocol supported but still loading
+                    att_text.push(Line::from(Span::styled(
+                        format!(
+                            "  \u{1F5BC} {} (loading... {:.1} KB)",
+                            att.filename,
+                            att.size_bytes as f64 / 1024.0
+                        ),
+                        Style::default().fg(Color::Cyan),
+                    )));
+                } else {
+                    // Non-image attachment, or image on unsupported terminal
+                    att_text.push(Line::from(Span::styled(
+                        format!(
+                            "  📎 {} ({}, {:.1} KB)  agora download {}",
+                            att.filename,
+                            att.content_type,
+                            att.size_bytes as f64 / 1024.0,
+                            att.id
+                        ),
+                        Style::default().fg(Color::Cyan),
+                    )));
+                }
+            }
+            if !att_text.is_empty() {
+                segments.push(Segment::Text(att_text));
             }
         }
 
-        lines.push(Line::from(""));
+        // Blank line between posts
+        segments.push(Segment::Text(vec![Line::from("")]));
     }
 
-    // Calculate scroll
-    let visible_height = inner.height as usize;
-    let total_lines = lines.len();
-    let max_scroll = total_lines.saturating_sub(visible_height);
+    // Calculate total height and render with scroll
+    let total_height: u16 = segments.iter().map(|s| s.height()).sum();
+    let visible_height = inner.height;
+    let max_scroll = (total_height as usize).saturating_sub(visible_height as usize);
     let scroll = app.scroll_offset.min(max_scroll);
 
-    let paragraph = Paragraph::new(lines)
-        .scroll((scroll as u16, 0))
-        .wrap(Wrap { trim: false });
+    // Render visible segments
+    let mut y_offset: i32 = -(scroll as i32);
 
-    f.render_widget(paragraph, inner);
+    for segment in &segments {
+        let seg_h = segment.height() as i32;
+
+        // Skip segments entirely above viewport
+        if y_offset + seg_h <= 0 {
+            y_offset += seg_h;
+            continue;
+        }
+        // Stop if we're past the viewport
+        if y_offset >= visible_height as i32 {
+            break;
+        }
+
+        // Calculate the visible portion of this segment
+        let clip_top = if y_offset < 0 { (-y_offset) as u16 } else { 0 };
+        let render_y = if y_offset > 0 { y_offset as u16 } else { 0 };
+        let available = visible_height.saturating_sub(render_y);
+        let render_h = (seg_h as u16).saturating_sub(clip_top).min(available);
+
+        if render_h == 0 {
+            y_offset += seg_h;
+            continue;
+        }
+
+        let seg_rect = Rect::new(inner.x, inner.y + render_y, inner.width, render_h);
+
+        match segment {
+            Segment::Text(lines) => {
+                let paragraph = Paragraph::new(lines.clone())
+                    .scroll((clip_top, 0))
+                    .wrap(Wrap { trim: false });
+                f.render_widget(paragraph, seg_rect);
+            }
+            Segment::Image { attachment_id, .. } => {
+                if app.image_picker.is_some() {
+                    // Convert Raw → Protocol on first render
+                    if let Some(CachedImage::Raw(_)) = app.image_cache.get(attachment_id) {
+                        if let Some(CachedImage::Raw(img)) = app.image_cache.remove(attachment_id) {
+                            let picker = app.image_picker.as_ref().unwrap();
+                            let proto = picker.new_resize_protocol(img);
+                            app.image_cache.insert(*attachment_id, CachedImage::Protocol(proto));
+                        }
+                    }
+                    // Render the StatefulProtocol
+                    if let Some(CachedImage::Protocol(proto)) = app.image_cache.get_mut(attachment_id) {
+                        let img_rect = Rect::new(
+                            seg_rect.x + 2,
+                            seg_rect.y,
+                            seg_rect.width.saturating_sub(4),
+                            seg_rect.height,
+                        );
+                        let image_widget = ratatui_image::StatefulImage::default();
+                        f.render_stateful_widget(image_widget, img_rect, proto);
+                    }
+                }
+            }
+        }
+
+        y_offset += seg_h;
+    }
 
     // Footer
     let post_info = if !app.posts.is_empty() {

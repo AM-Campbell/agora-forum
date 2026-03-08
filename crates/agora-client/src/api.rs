@@ -3,6 +3,7 @@ use reqwest::Client;
 use crate::identity::Identity;
 use agora_common::*;
 
+#[derive(Clone)]
 pub struct ApiClient {
     client: Client,
     base_url: String,

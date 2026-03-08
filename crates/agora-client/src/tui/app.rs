@@ -13,13 +13,32 @@ use ratatui::{
 };
 use std::io;
 
+use std::collections::HashMap;
+use std::time::Duration;
+
+use tokio::sync::mpsc;
+
 use crate::api::ApiClient;
 use crate::cache::{self, Cache};
+use crate::cli::image::is_displayable_image;
 use crate::config;
 use crate::editor;
 use crate::tui::input::{self, Action, EditorKind, PageContext};
 use crate::tui::status::ConnectionState;
 use agora_common::*;
+
+/// Message sent from background image download tasks to the event loop.
+pub struct ImageReady {
+    pub attachment_id: i64,
+    pub image: image::DynamicImage,
+}
+
+/// Cached image state — either the raw DynamicImage (awaiting protocol conversion)
+/// or the StatefulProtocol ready for rendering.
+pub enum CachedImage {
+    Raw(image::DynamicImage),
+    Protocol(ratatui_image::protocol::StatefulProtocol),
+}
 
 pub enum TuiResult {
     Quit,
@@ -126,6 +145,12 @@ pub struct App {
 
     // Server picker
     pub servers: Vec<config::ServerConfig>,
+
+    // Image cache for inline display: attachment_id → cached image state
+    pub image_cache: HashMap<i64, CachedImage>,
+
+    // Picker for ratatui-image protocol detection
+    pub image_picker: Option<ratatui_image::picker::Picker>,
 }
 
 impl App {
@@ -163,6 +188,9 @@ impl App {
             mentions: Vec::new(),
             reply_context: 3,
             servers: Vec::new(),
+            image_cache: HashMap::new(),
+            image_picker: ratatui_image::picker::Picker::from_query_stdio()
+                .ok(),
         }
     }
 
@@ -263,6 +291,11 @@ impl App {
         }
     }
 
+    /// Clear images not belonging to the current thread's posts.
+    pub fn clear_image_cache(&mut self) {
+        self.image_cache.clear();
+    }
+
     /// Build a consistent header title: ` Server › Location  ─  @user · status `
     pub fn header_title(&self, location: &str) -> String {
         format!(
@@ -349,7 +382,19 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
     }
     app.clamp_selection();
 
+    // Channel for background image downloads
+    let (img_tx, mut img_rx) = mpsc::unbounded_channel::<ImageReady>();
+
     loop {
+        // Drain any completed image downloads (non-blocking)
+        while let Ok(ready) = img_rx.try_recv() {
+            let cached = if let Some(picker) = &app.image_picker {
+                CachedImage::Protocol(picker.new_resize_protocol(ready.image))
+            } else {
+                CachedImage::Raw(ready.image)
+            };
+            app.image_cache.insert(ready.attachment_id, cached);
+        }
         // Check terminal size
         let size = terminal.size().unwrap_or_default();
         if size.width < MIN_TERMINAL_WIDTH || size.height < MIN_TERMINAL_HEIGHT {
@@ -372,7 +417,7 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
                 match app.current_view().clone() {
                     View::Boards => crate::tui::boards::render(f, &app, area),
                     View::Threads => crate::tui::threads::render(f, &app, area),
-                    View::Thread => crate::tui::thread::render(f, &app, area),
+                    View::Thread => crate::tui::thread::render(f, &mut app, area),
                     View::Invites => crate::tui::invites::render(f, &app, area),
                     View::Members => crate::tui::members::render(f, &app, area),
                     View::Search => crate::tui::search::render(f, &app, area),
@@ -401,6 +446,11 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
                 }
             })
             .map_err(|e| format!("Draw error: {}", e))?;
+
+        // Poll for key events with a short timeout so we can also pick up image completions
+        if !event::poll(Duration::from_millis(100)).unwrap_or(false) {
+            continue; // No key event — loop back to drain images and redraw
+        }
 
         if let Ok(Event::Key(key)) = event::read() {
             let action = input::handle_key(&mut app, key);
@@ -455,6 +505,7 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
                             }
                             app.posts = resp.posts;
                             app.total_pages = resp.total_pages;
+                            spawn_image_downloads(&api, &app, &img_tx);
                         }
                         Err(e) => {
                             app.status_message = Some(format!("Error: {}", e));
@@ -859,6 +910,7 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
                         cache::get_last_read_post_id(&app.cache, thread_id);
                     app.post_cursor = None;
                     app.current_page = 1;
+                    app.clear_image_cache();
                     match api.get_thread(thread_id, 1).await {
                         Ok(resp) => {
                             cache::cache_posts(&app.cache, thread_id, &resp.posts);
@@ -872,6 +924,7 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
                             app.current_thread = Some(resp.thread);
                             app.posts = resp.posts;
                             app.total_pages = resp.total_pages;
+                            spawn_image_downloads(&api, &app, &img_tx);
                             app.push_view(View::Thread);
                         }
                         Err(e) => {
@@ -938,6 +991,41 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Spawn background tasks to download and decode displayable image attachments.
+/// Only downloads if the terminal supports an image protocol (picker is Some).
+fn spawn_image_downloads(
+    api: &ApiClient,
+    app: &App,
+    tx: &mpsc::UnboundedSender<ImageReady>,
+) {
+    // Don't download images if the terminal can't display them
+    if app.image_picker.is_none() {
+        return;
+    }
+    for post in &app.posts {
+        if post.is_deleted {
+            continue;
+        }
+        for att in &post.attachments {
+            if is_displayable_image(&att.content_type) && !app.image_cache.contains_key(&att.id) {
+                let api = api.clone();
+                let att_id = att.id;
+                let tx = tx.clone();
+                tokio::spawn(async move {
+                    if let Ok((data, _ct, _fname)) = api.download_attachment(att_id).await {
+                        if let Ok(img) = image::load_from_memory(&data) {
+                            let _ = tx.send(ImageReady {
+                                attachment_id: att_id,
+                                image: img,
+                            });
+                        }
+                    }
+                });
             }
         }
     }

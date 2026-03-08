@@ -4,9 +4,9 @@ A private, invite-only forum that runs in your terminal over the Tor network.
 
 Someone you know runs a forum. They give you two things: a server address (a long `.onion` URL) and an invite code. You install Agora, type those in, pick a username, and you're in.
 
-## Getting Started
+> **Recommended terminals:** [Ghostty](https://ghostty.org), [Kitty](https://sw.kovidgoyal.net/kitty/), or [WezTerm](https://wezfurlong.org/wezterm/) for the best experience (inline image rendering). Agora works in any terminal.
 
-### 1. Install
+## Install
 
 Open your terminal and paste this:
 
@@ -14,133 +14,53 @@ Open your terminal and paste this:
 curl -sSL https://raw.githubusercontent.com/AM-Campbell/agora-forum/refs/heads/master/install.sh | sh
 ```
 
-This does three things:
-- Installs Tor if you don't have it (it will ask for your password)
-- Downloads the Agora program
-- Sets up your PATH so you can run `agora` from anywhere
+This installs Tor (if needed), downloads the Agora binary, and sets up your PATH. If you're on macOS and don't have Homebrew, install it first: https://brew.sh
 
-If you're on macOS and don't have Homebrew, install it first: https://brew.sh
-
-### 2. Join a Forum
+Then join a forum:
 
 ```
 agora setup
 ```
 
-You'll be asked for:
-- **Server address** — the `.onion` URL your friend gave you
-- **Invite code** — the code your friend gave you
-- **Username** — pick whatever you like (letters, numbers, underscores, 3-20 characters)
+Enter the server address, invite code, and pick a username. Then run `agora` to open the forum.
 
-That's it. Your account is created.
+## Documentation
 
-### 3. Open the Forum
+- **[USER-GUIDE.md](USER-GUIDE.md)** — How to use Agora: browsing, posting, DMs, search, attachments, and all features
+- **[SERVER-GUIDE.md](SERVER-GUIDE.md)** — Running your own Agora server
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — Technical internals for contributors
 
-```
-agora
-```
+The client also has built-in documentation: run `agora guide` for in-terminal help on all commands and features.
 
-This opens the interactive forum browser. You'll see a list of boards (topics). Use the arrow keys to move around, Enter to open things, and Esc to go back. Press `?` at any time to see all the keyboard shortcuts.
-
-To write a post, press `n`. This opens your text editor — write your message, save, and quit the editor. Your post is submitted automatically.
-
-## Keyboard Shortcuts
+## Quick Reference
 
 | Key | What it does |
 |---|---|
 | Arrow keys or `j`/`k` | Move up and down |
 | `Enter` | Open the selected item |
 | `Esc` or `q` | Go back (or quit) |
-| `r` | Refresh |
-| `n` | New thread or new reply |
-| `e` | Edit your post |
-| `b` | Bookmark a thread |
-| `i` | Invites |
+| `n` | New thread or reply |
+| `Tab` | Post selection mode (reply-to, react) |
+| `@` | View your @mentions |
+| `m` | Direct messages |
+| `b` | Bookmarks |
 | `/` | Search |
 | `?` | Help |
 
-## Inviting Others
+## Features
 
-Once you're a member, you can invite others:
-
-```
-agora invite
-```
-
-This prints an invite code. Give it to someone along with the server address.
-
-## Joining Multiple Servers
-
-Agora works like Discord — you can join multiple independent servers, each with a separate identity:
-
-```
-agora setup                              # Join another server
-agora servers                            # See all your servers
-agora servers set-default http://...     # Switch your default
-```
-
-## Command Line
-
-Everything you can do in the interactive browser, you can also do from the command line:
-
-```
-agora boards                             # List boards
-agora threads general                    # List threads in a board
-agora read 42                            # Read a thread
-agora post general "My Thread Title"     # Start a new thread
-agora reply 42                           # Reply to a thread
-agora search "bayesian" --by alice       # Search, optionally filter by user
-agora bookmark 42                        # Bookmark a thread
-agora status                             # Check your connection
-```
-
-For a complete list, run `agora --help` or `agora guide` for in-terminal documentation with examples.
-
-## Backing Up Your Identity
-
-Your identity (keypair + server configs) lives in `~/.agora/`. To move to a new device:
-
-```
-agora profile export -o my-backup.toml   # On old device
-agora profile import my-backup.toml      # On new device
-```
-
-Keep this file safe — it contains your private keys.
-
-## Troubleshooting
-
-**"Tor doesn't seem to be running"**
-Start Tor and try again:
-```
-# Linux
-sudo systemctl start tor
-
-# macOS
-brew services start tor
-```
-
-**The forum says "offline"**
-The server might be down, or Tor might have disconnected. Press `r` to retry. You can still read anything you've previously loaded — it's cached on your computer.
-
-**A post failed to send**
-Your text is saved automatically in `~/.agora/drafts/`. When the connection is back, resubmit it:
-```
-agora reply 42 -f ~/.agora/drafts/reply_42_....txt
-```
-
-**Your text editor doesn't open**
-Set the `EDITOR` environment variable. Add this line to your `~/.bashrc` or `~/.zshrc`:
-```
-export EDITOR=nano
-```
-Then restart your terminal.
-
-## More Information
-
-Run `agora guide` for built-in documentation covering all commands, TUI shortcuts, server management, and moderation.
-
-- [SERVER-GUIDE.md](SERVER-GUIDE.md) — Running your own Agora server
-- [ARCHITECTURE.md](ARCHITECTURE.md) — Technical internals for contributors
+- **Boards, threads, posts** — classic forum structure
+- **Markdown** — bold, italic, code, links, blockquotes
+- **@mentions** — mention users, see who mentioned you
+- **Reactions** — thumbs up, check, heart, thinking, laugh
+- **Direct messages** — end-to-end encrypted (XSalsa20)
+- **File attachments** — up to 5 MB, images display inline in supported terminals
+- **Search** — full-text search, filter by user
+- **Bookmarks** — save threads for later
+- **Multiple servers** — join multiple forums with separate identities
+- **Offline mode** — everything is cached locally, works without connection
+- **Moderation** — pin/lock threads, delete posts, ban users, role-based permissions
+- **Profile backup** — export/import identities across devices
 
 ---
 

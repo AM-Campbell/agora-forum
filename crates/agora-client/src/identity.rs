@@ -6,6 +6,7 @@ use crate::config;
 
 const ENGINE: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
 
+#[derive(Clone)]
 pub struct Identity {
     signing_key: SigningKey,
 }

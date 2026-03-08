@@ -11,7 +11,7 @@ path = "src/main.rs"
 agora-common = { path = "../agora-common" }
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
-ratatui = "0.28"
+ratatui = "0.30"
 crossterm = "0.28"
 reqwest = { version = "0.12", default-features = false, features = ["json", "socks", "rustls-tls"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
@@ -31,3 +31,5 @@ x25519-dalek = { version = "2", features = ["static_secrets"] }
 sha2 = "0.10"
 curve25519-dalek = "4"
 hex = "0.4"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+ratatui-image = { version = "10", default-features = false, features = ["crossterm", "image-defaults"] }

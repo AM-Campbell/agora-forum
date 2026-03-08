@@ -13,7 +13,7 @@ The forum is organized like an old-school bulletin board: there are **boards** (
 Open your terminal and paste:
 
 ```
-curl -sSL https://raw.githubusercontent.com/am-campbell/agora-forum/main/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/AM-Campbell/agora-forum/refs/heads/master/install.sh | sh
 ```
 
 This installs Tor (if you don't have it) and downloads the Agora program. It may ask for your password during the Tor installation step.
@@ -252,6 +252,65 @@ agora search "bayesian" --by alice   # Posts by alice about "bayesian"
 
 ---
 
+## Replying to Specific Posts
+
+By default, pressing `n` replies to the whole thread. To reply to a specific post (which shows a `↳ re: #5 (alice)` indicator):
+
+1. Press `Tab` to enter post selection mode
+2. Use `j`/`k` to highlight the post you want to reply to
+3. Press `R` to reply to that post
+4. Press `Esc` to exit post selection mode
+
+From the command line:
+
+```
+agora reply 42 --to 5        # Reply to post #5 in thread 42
+```
+
+---
+
+## Reactions
+
+You can react to posts with a small set of reactions: thumbs up, check, heart, thinking, and laugh.
+
+In the TUI:
+
+1. Press `Tab` to enter post selection mode
+2. Navigate to the post with `j`/`k`
+3. Press `+` to open the reaction picker
+4. Press `1`-`5` to pick a reaction
+
+From the command line:
+
+```
+agora react 42 5 heart       # React to post #5 in thread 42
+```
+
+Your reactions appear highlighted; others' reactions appear dimmed.
+
+---
+
+## @Mentions
+
+Type `@username` in any post to mention someone. Mentions are highlighted in yellow, and if someone mentions you, it appears bold. View all posts where you've been mentioned:
+
+- In the TUI: press `@` from the home screen
+- From the command line: `agora mentions`
+
+---
+
+## Your Bio
+
+Set a short bio that other members can see:
+
+```
+agora bio "Interested in epistemology and distributed systems"
+```
+
+View someone's bio with `agora who` (shows all members and their bios).
+
+---
+
 ## File Attachments
 
 You can attach files (up to 5 MB each) to your own posts:
@@ -399,13 +458,16 @@ Then restart your terminal.
 
 ### Your account / identity
 
-Your account is stored in a file on your computer. There are no passwords and no way to recover it if lost. The file is at:
+Your account is stored in a file on your computer. There are no passwords and no way to recover it if lost.
+
+**Back it up** using the export command:
 
 ```
-~/.agora/servers/<hash>/identity.key
+agora profile export -o my-backup.toml    # Save all identities
+agora profile import my-backup.toml       # Restore on a new device
 ```
 
-**Back this up.** If you lose it, you'll need a new invite code and a new username.
+Keep this file safe — it contains your private keys. If you lose your identity without a backup, you'll need a new invite code and a new username.
 
 ### The cache seems wrong
 
@@ -419,11 +481,11 @@ agora cache-clear
 
 ## Tips
 
-- **Reference posts by number.** Say "Re #5:" to make it clear which post you're responding to, since threads are flat (no nested replies).
-
 - **Use `>` for quoting.** The forum dims quoted lines so they're visually distinct.
 
-- **Everything is plain text.** No formatting, no bold, no links. What you type is what people see.
+- **Basic formatting works.** You can use `**bold**`, `*italic*`, `` `inline code` ``, triple-backtick code blocks, `[link text](url)`, and `> blockquotes`. These render with appropriate styling in the TUI.
+
+- **@mention people.** Type `@alice` in a post and it will be highlighted. The mentioned user can see all their mentions by pressing `@` in the TUI or running `agora mentions`.
 
 - **You can adjust reply context.** When replying, Agora shows the last 3 posts in your editor for context. Change this in `~/.agora/config.toml`:
 
@@ -432,3 +494,5 @@ agora cache-clear
     ```
 
 - **Startup is fast.** Agora caches everything locally, so it opens instantly. Press `r` to fetch the latest from the server.
+
+- **Built-in docs.** Run `agora guide` for in-terminal documentation on all commands, shortcuts, and features.
