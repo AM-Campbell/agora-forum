@@ -94,12 +94,19 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         app.current_page, app.total_pages
     );
     let page_nav = if app.total_pages > 1 { "  []] next  [[] prev" } else { "" };
-    let footer = Paragraph::new(Line::from(vec![
-        Span::raw(format!(
+    let w = area.width as usize;
+    let footer_text = if w >= 80 {
+        format!(
             " [Enter] open  [n]ew thread  [r]efresh  [?]help  [Esc]{}{}",
             page_nav, page_info
-        )),
-    ]))
-    .block(Block::default().borders(Borders::ALL));
+        )
+    } else {
+        format!(
+            " [Enter] open  [n]ew  [?]help  [Esc]{}",
+            page_nav
+        )
+    };
+    let footer = Paragraph::new(Line::from(vec![Span::raw(footer_text)]))
+        .block(Block::default().borders(Borders::ALL));
     f.render_widget(footer, chunks[1]);
 }

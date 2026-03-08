@@ -6,6 +6,7 @@ use crossterm::{
 use ratatui::{
     backend::CrosstermBackend,
     layout::Rect,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame, Terminal,
@@ -980,8 +981,11 @@ async fn send_dm_via_editor(api: &ApiClient, recipient: &str) {
 }
 
 fn render_help(f: &mut Frame, area: Rect) {
+    let bold = Style::default().add_modifier(Modifier::BOLD);
+    let dim = Style::default().add_modifier(Modifier::DIM);
+
     let width = 50u16.min(area.width.saturating_sub(4));
-    let height = 27u16.min(area.height.saturating_sub(4));
+    let height = 32u16.min(area.height.saturating_sub(4));
     let x = (area.width.saturating_sub(width)) / 2;
     let y = (area.height.saturating_sub(height)) / 2;
     let help_area = Rect::new(x, y, width, height);
@@ -989,32 +993,37 @@ fn render_help(f: &mut Frame, area: Rect) {
     f.render_widget(Clear, help_area);
 
     let help_text = vec![
-        Line::from(Span::raw("")),
-        Line::from(Span::raw("  q / Esc      Go back (quit from home)")),
-        Line::from(Span::raw("  j / k / ↑↓   Navigate lists")),
+        Line::from(""),
+        Line::from(Span::styled("  Navigation", bold)),
+        Line::from(Span::raw("  j / k / \u{2191}\u{2193}   Navigate lists")),
         Line::from(Span::raw("  Enter        Open selected item")),
-        Line::from(Span::raw("  r            Refresh current view")),
+        Line::from(Span::raw("  q / Esc      Go back (quit from home)")),
+        Line::from(Span::raw("  ] / [        Next / prev page")),
+        Line::from(Span::raw("  g / G        Jump to top / bottom")),
+        Line::from(Span::raw("  PgUp / PgDn  Scroll by page")),
+        Line::from(""),
+        Line::from(Span::styled("  Actions", bold)),
         Line::from(Span::raw("  n            New thread / reply / DM")),
         Line::from(Span::raw("  e            Edit your last post")),
-        Line::from(Span::raw("  b            Bookmarks / toggle bookmark")),
-        Line::from(Span::raw("  i            Open invites view")),
-        Line::from(Span::raw("  w            Who's online / members")),
-        Line::from(Span::raw("  m            Messages (DMs)")),
-        Line::from(Span::raw("  @            View @mentions")),
-        Line::from(Span::raw("  S            Switch server")),
+        Line::from(Span::raw("  r            Refresh current view")),
+        Line::from(Span::raw("  b            Toggle bookmark")),
         Line::from(Span::raw("  /            Search")),
-        Line::from(Span::raw("  Tab          Enter post-selection mode")),
-        Line::from(Span::raw("  ?            Toggle this help")),
-        Line::from(Span::raw("  ] / [        Next / prev page")),
-        Line::from(Span::raw("  g / G        Go to top / bottom")),
-        Line::from(Span::raw("  PgUp/PgDn   Scroll by page")),
-        Line::from(Span::raw("  y            Yank invite code")),
-        Line::from(Span::raw("  Ctrl+C       Quit immediately")),
-        Line::from(Span::raw("")),
-        Line::from(Span::raw("  Post-selection mode (Tab):")),
-        Line::from(Span::raw("  j/k select  R reply-to  + react")),
-        Line::from(Span::raw("")),
-        Line::from(Span::raw("  Press ? or Esc to close")),
+        Line::from(Span::raw("  y            Copy invite code")),
+        Line::from(""),
+        Line::from(Span::styled("  Views", bold)),
+        Line::from(Span::raw("  i            Invites")),
+        Line::from(Span::raw("  w            Members (who's online)")),
+        Line::from(Span::raw("  m            Messages (DMs)")),
+        Line::from(Span::raw("  @            @Mentions")),
+        Line::from(Span::raw("  S            Switch server")),
+        Line::from(""),
+        Line::from(Span::styled("  Post Mode (Tab)", bold)),
+        Line::from(Span::raw("  j / k        Select post")),
+        Line::from(Span::raw("  R            Reply to selected post")),
+        Line::from(Span::raw("  +            React to selected post")),
+        Line::from(Span::raw("  Esc          Exit post mode")),
+        Line::from(""),
+        Line::from(Span::styled("  ? or Esc to close", dim)),
     ];
 
     let help = Paragraph::new(help_text)

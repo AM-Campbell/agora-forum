@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
@@ -44,7 +44,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             ]));
             lines.push(Line::from(Span::styled(
                 format!("    by {} — {}", m.author, m.created_at),
-                Style::default().fg(Color::DarkGray),
+                Style::default().add_modifier(Modifier::DIM),
             )));
             lines.push(Line::from(Span::styled(
                 format!("    {}", m.snippet),

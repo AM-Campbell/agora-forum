@@ -126,7 +126,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         if post.is_deleted {
             lines.push(Line::from(Span::styled(
                 "  [This post has been deleted by a moderator]",
-                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                Style::default().add_modifier(Modifier::DIM | Modifier::ITALIC),
             )));
         } else {
             let body_lines = crate::tui::markdown::render_body(&post.body, "  ", Some(&app.username));
@@ -138,17 +138,17 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             let mut reaction_spans: Vec<Span> = vec![Span::raw("  ")];
             for rc in &post.reactions {
                 let emoji = match rc.reaction.as_str() {
-                    "thumbsup" => "+1",
-                    "check" => "ok",
-                    "heart" => "<3",
-                    "think" => "hmm",
-                    "laugh" => "ha",
+                    "thumbsup" => "\u{1F44D}",
+                    "check" => "\u{2705}",
+                    "heart" => "\u{2764}\u{FE0F}",
+                    "think" => "\u{1F914}",
+                    "laugh" => "\u{1F602}",
                     other => other,
                 };
                 let style = if rc.reacted_by_me {
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(Color::DarkGray)
+                    Style::default().add_modifier(Modifier::DIM)
                 };
                 reaction_spans.push(Span::styled(format!("{} {} ", emoji, rc.count), style));
             }
@@ -205,16 +205,28 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         post_info
     };
 
+    let w = area.width as usize;
     let footer_text = if app.post_cursor.is_some() {
-        format!(
-            " POST MODE: [j/k] select  [R]eply-to  [+] react  [Esc] exit{}",
-            page_nav
-        )
-    } else {
+        if w >= 70 {
+            format!(
+                " POST MODE: [j/k] select  [R]eply-to  [+] react  [Esc] exit{}",
+                page_nav
+            )
+        } else {
+            format!(" POST: [j/k]  [R]eply  [+]react  [Esc]{}", page_nav)
+        }
+    } else if w >= 90 {
         format!(
             " [n]ew reply  [e]dit  [b]ookmark  [Tab] post mode  [j/k] scroll  [r]efresh  [?]help  [Esc]{}",
             page_nav
         )
+    } else if w >= 70 {
+        format!(
+            " [n]ew  [e]dit  [b]ookmark  [Tab] posts  [?]help  [Esc]{}",
+            page_nav
+        )
+    } else {
+        format!(" [n]ew  [Tab] posts  [?]help  [Esc]{}", page_nav)
     };
 
     let footer = Paragraph::new(Line::from(vec![Span::raw(footer_text)]))
@@ -223,7 +235,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
     // Reaction picker popup
     if app.show_reaction_picker {
-        let popup_width = 40u16;
+        let popup_width = 52u16;
         let popup_height = 5u16;
         let popup_x = area.x + (area.width.saturating_sub(popup_width)) / 2;
         let popup_y = area.y + (area.height.saturating_sub(popup_height)) / 2;
@@ -231,7 +243,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         f.render_widget(Clear, popup_area);
         let picker = Paragraph::new(vec![
             Line::from(""),
-            Line::from("  1:+1  2:ok  3:<3  4:hmm  5:ha"),
+            Line::from("  1:\u{1F44D} thumbs up  2:\u{2705} check  3:\u{2764}\u{FE0F} heart  4:\u{1F914} think  5:\u{1F602} laugh"),
             Line::from(""),
         ])
         .block(Block::default().borders(Borders::ALL).title(" React "));
