@@ -97,18 +97,8 @@ if [ "$1" = "--upgrade" ] || [ "$1" = "upgrade" ]; then
         exit 1
     fi
 
-    echo "  [1/3] Building / downloading binary..."
-
-    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    LOCAL_BIN="${SCRIPT_DIR}/target/release/agora-server"
-
-    if [ -f "$LOCAL_BIN" ]; then
-        cp "$LOCAL_BIN" "$AGORA_BIN"
-        chmod +x "$AGORA_BIN"
-        echo "        Installed from local build"
-    else
-        install_binary_from_github
-    fi
+    echo "  [1/3] Downloading binary..."
+    install_binary_from_github
 
     echo "  [2/3] Restarting service..."
     systemctl restart agora
@@ -253,18 +243,7 @@ fi
 # ── Step 3: Install binary ──────────────────────────────────
 
 echo "  [3/6] Installing server binary..."
-
-# Check if there's a local build first
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOCAL_BIN="${SCRIPT_DIR}/target/release/agora-server"
-
-if [ -f "$LOCAL_BIN" ]; then
-    cp "$LOCAL_BIN" "$AGORA_BIN"
-    chmod +x "$AGORA_BIN"
-    echo "        Installed from local build"
-else
-    install_binary_from_github
-fi
+install_binary_from_github
 
 # ── Step 4: Configure Tor hidden service ─────────────────────
 
