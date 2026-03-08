@@ -1707,7 +1707,8 @@ pub async fn dm_inbox(
                  WHEN dm.sender_id = ?1 THEN dm.recipient_id
                  ELSE dm.sender_id
              END
-             WHERE dm.sender_id = ?1 OR dm.recipient_id = ?1
+             WHERE (dm.sender_id = ?1 OR dm.recipient_id = ?1)
+               AND u.is_banned = 0
              GROUP BY u.id
              ORDER BY last_message_at DESC",
         ));

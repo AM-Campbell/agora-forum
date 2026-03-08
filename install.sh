@@ -60,7 +60,7 @@ else
         sudo systemctl enable tor 2>/dev/null || true
         sudo systemctl start tor 2>/dev/null || true
     elif command -v pacman >/dev/null 2>&1; then
-        sudo pacman -Sy --noconfirm tor
+        sudo pacman -S --noconfirm tor
         sudo systemctl enable tor 2>/dev/null || true
         sudo systemctl start tor 2>/dev/null || true
     elif command -v dnf >/dev/null 2>&1; then

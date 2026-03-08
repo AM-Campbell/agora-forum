@@ -6,6 +6,7 @@ mod routes;
 mod validation;
 
 use axum::{
+    extract::DefaultBodyLimit,
     middleware,
     routing::{get, post, put},
     Router,
@@ -88,6 +89,22 @@ async fn main() {
 
     let db_path = std::env::var("AGORA_DB").unwrap_or_else(|_| "agora.db".to_string());
     let bind_addr = std::env::var("AGORA_BIND").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
+
+    // Safety: refuse to touch the production database unless running as the agora user.
+    // This prevents `cargo run` in a dev checkout from accidentally clobbering prod data.
+    if db_path == "/var/lib/agora/forum.db" {
+        let is_agora_user = std::env::var("USER")
+            .map(|u| u == "agora")
+            .unwrap_or(false);
+        if !is_agora_user {
+            error!(
+                "Refusing to use production database ({}) as non-agora user. \
+                 Set AGORA_DB to a different path for development.",
+                db_path
+            );
+            std::process::exit(1);
+        }
+    }
 
     let database = db::open(&db_path);
     db::migrate(&database);
@@ -185,6 +202,7 @@ async fn main() {
             axum::http::header::HeaderName::from_static("x-frame-options"),
             axum::http::HeaderValue::from_static("DENY"),
         ))
+        .layer(DefaultBodyLimit::max(8 * 1024 * 1024)) // 8 MB max request body
         .with_state(state);
 
     info!("AGORA server listening on {}", bind_addr);
@@ -194,11 +212,19 @@ async fn main() {
         Err(e) => {
             error!("Could not listen on {}: {}", bind_addr, e);
             if e.kind() == std::io::ErrorKind::AddrInUse {
-                error!("Another process is already using that port. Use AGORA_BIND to choose a different address, e.g.: AGORA_BIND=127.0.0.1:3000 agora-server");
+                error!(
+                    "Port already in use. If the production server is running, \
+                     use a different port for development: AGORA_BIND=127.0.0.1:9090 cargo run"
+                );
             }
             std::process::exit(1);
         }
     };
+
+    // Limit concurrent connections to prevent resource exhaustion
+    let app = tower::ServiceBuilder::new()
+        .concurrency_limit(256)
+        .service(app.into_make_service());
 
     axum::serve(listener, app).await.expect("server error");
 }
