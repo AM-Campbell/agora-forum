@@ -11,7 +11,7 @@ Someone you know runs a forum. They give you two things: a server address (a lon
 Open your terminal and paste this:
 
 ```
-curl -sSL https://raw.githubusercontent.com/am-campbell/agora-forum/main/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/AM-Campbell/agora-forum/refs/heads/master/install.sh | sh
 ```
 
 This does three things:
