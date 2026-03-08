@@ -13,7 +13,46 @@ use tracing::warn;
 use crate::models::ErrorBody;
 use crate::AppState;
 
-const MAX_TIMESTAMP_DRIFT: i64 = 60;
+pub const MAX_TIMESTAMP_DRIFT: i64 = 60;
+
+/// Validate that a timestamp is within acceptable drift of `now`.
+pub fn validate_timestamp(timestamp: i64, now: i64) -> Result<(), &'static str> {
+    if (now - timestamp).abs() > MAX_TIMESTAMP_DRIFT {
+        Err("Timestamp too old")
+    } else {
+        Ok(())
+    }
+}
+
+/// Decode a base64 string into a fixed-size byte array.
+pub fn decode_base64_fixed<const N: usize>(s: &str) -> Result<[u8; N], &'static str> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(s)
+        .map_err(|_| "Invalid base64 encoding")?;
+    bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| "Invalid decoded length")
+}
+
+/// Build the signing string from request components.
+pub fn build_signing_string(method: &str, path: &str, timestamp: &str, body: &str) -> String {
+    format!("{}\n{}\n{}\n{}", method, path, timestamp, body)
+}
+
+/// Verify an ed25519 signature over a message.
+pub fn verify_signature(
+    pubkey_bytes: &[u8; 32],
+    message: &[u8],
+    sig_bytes: &[u8; 64],
+) -> Result<(), &'static str> {
+    let verifying_key =
+        VerifyingKey::from_bytes(pubkey_bytes).map_err(|_| "Invalid public key")?;
+    let signature = Signature::from_bytes(sig_bytes);
+    verifying_key
+        .verify(message, &signature)
+        .map_err(|_| "Invalid signature")
+}
 
 /// Authenticated user info attached to request extensions.
 #[derive(Clone, Debug)]
@@ -72,19 +111,18 @@ pub async fn auth_middleware(
     };
 
     let now = chrono::Utc::now().timestamp();
-    if (now - timestamp).abs() > MAX_TIMESTAMP_DRIFT {
+    if let Err(msg) = validate_timestamp(timestamp, now) {
         warn!("Auth failed: timestamp drift");
         return (
             StatusCode::UNAUTHORIZED,
-            Json(ErrorBody::new("Timestamp too old")),
+            Json(ErrorBody::new(msg)),
         )
             .into_response();
     }
 
     // Decode public key
-    let engine = base64::engine::general_purpose::STANDARD;
-    let pubkey_bytes = match engine.decode(&pubkey_b64) {
-        Ok(b) => b,
+    let pubkey_array: [u8; 32] = match decode_base64_fixed(&pubkey_b64) {
+        Ok(a) => a,
         Err(_) => {
             return (
                 StatusCode::UNAUTHORIZED,
@@ -94,30 +132,9 @@ pub async fn auth_middleware(
         }
     };
 
-    let pubkey_array: [u8; 32] = match pubkey_bytes.as_slice().try_into() {
-        Ok(a) => a,
-        Err(_) => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(ErrorBody::new("Invalid public key length")),
-            )
-                .into_response();
-        }
-    };
-    let verifying_key = match VerifyingKey::from_bytes(&pubkey_array) {
-        Ok(k) => k,
-        Err(_) => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(ErrorBody::new("Invalid public key")),
-            )
-                .into_response();
-        }
-    };
-
     // Decode signature
-    let sig_bytes = match engine.decode(&sig_b64) {
-        Ok(b) => b,
+    let sig_array: [u8; 64] = match decode_base64_fixed(&sig_b64) {
+        Ok(a) => a,
         Err(_) => {
             return (
                 StatusCode::UNAUTHORIZED,
@@ -126,18 +143,6 @@ pub async fn auth_middleware(
                 .into_response();
         }
     };
-
-    let sig_array: [u8; 64] = match sig_bytes.as_slice().try_into() {
-        Ok(a) => a,
-        Err(_) => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(ErrorBody::new("Invalid signature length")),
-            )
-                .into_response();
-        }
-    };
-    let signature = Signature::from_bytes(&sig_array);
 
     // Reconstruct signing string — extract method/path+query before consuming request
     let method = request.method().to_string();
@@ -162,10 +167,10 @@ pub async fn auth_middleware(
     };
 
     let body_str = String::from_utf8_lossy(&body_bytes);
-    let signing_string = format!("{}\n{}\n{}\n{}", method, path, timestamp_str, body_str);
+    let signing_string = build_signing_string(&method, &path, &timestamp_str, &body_str);
 
-    if verifying_key.verify(signing_string.as_bytes(), &signature).is_err() {
-        warn!(path = %path, "Auth failed: invalid signature");
+    if let Err(msg) = verify_signature(&pubkey_array, signing_string.as_bytes(), &sig_array) {
+        warn!(path = %path, "Auth failed: {}", msg);
         return (
             StatusCode::UNAUTHORIZED,
             Json(ErrorBody::new("Invalid signature")),
@@ -251,4 +256,133 @@ pub async fn auth_middleware(
     request.extensions_mut().insert(user);
 
     next.run(request).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- validate_timestamp ---
+
+    #[test]
+    fn timestamp_valid_exact_now() {
+        assert!(validate_timestamp(1000, 1000).is_ok());
+    }
+
+    #[test]
+    fn timestamp_valid_within_drift() {
+        assert!(validate_timestamp(1000, 1060).is_ok()); // exactly at boundary
+        assert!(validate_timestamp(1060, 1000).is_ok()); // future within drift
+        assert!(validate_timestamp(1000, 1030).is_ok()); // 30s drift
+    }
+
+    #[test]
+    fn timestamp_invalid_too_old() {
+        assert_eq!(validate_timestamp(1000, 1061), Err("Timestamp too old"));
+    }
+
+    #[test]
+    fn timestamp_invalid_too_far_future() {
+        assert_eq!(validate_timestamp(1061, 1000), Err("Timestamp too old"));
+    }
+
+    // --- decode_base64_fixed ---
+
+    #[test]
+    fn decode_base64_32_valid() {
+        let encoded = base64::engine::general_purpose::STANDARD.encode([0xABu8; 32]);
+        let result: [u8; 32] = decode_base64_fixed(&encoded).unwrap();
+        assert_eq!(result, [0xAB; 32]);
+    }
+
+    #[test]
+    fn decode_base64_64_valid() {
+        let encoded = base64::engine::general_purpose::STANDARD.encode([0xCDu8; 64]);
+        let result: [u8; 64] = decode_base64_fixed(&encoded).unwrap();
+        assert_eq!(result, [0xCD; 64]);
+    }
+
+    #[test]
+    fn decode_base64_invalid_encoding() {
+        let result: Result<[u8; 32], _> = decode_base64_fixed("not-valid!!!");
+        assert_eq!(result, Err("Invalid base64 encoding"));
+    }
+
+    #[test]
+    fn decode_base64_wrong_length() {
+        let encoded = base64::engine::general_purpose::STANDARD.encode([0u8; 16]);
+        let result: Result<[u8; 32], _> = decode_base64_fixed(&encoded);
+        assert_eq!(result, Err("Invalid decoded length"));
+    }
+
+    // --- build_signing_string ---
+
+    #[test]
+    fn signing_string_format() {
+        let result = build_signing_string("GET", "/boards", "12345", "");
+        assert_eq!(result, "GET\n/boards\n12345\n");
+    }
+
+    #[test]
+    fn signing_string_with_body() {
+        let result = build_signing_string("POST", "/threads/1/posts", "99999", "{\"body\":\"hi\"}");
+        assert_eq!(result, "POST\n/threads/1/posts\n99999\n{\"body\":\"hi\"}");
+    }
+
+    #[test]
+    fn signing_string_with_query() {
+        let result = build_signing_string("GET", "/boards/general?page=2", "12345", "");
+        assert_eq!(result, "GET\n/boards/general?page=2\n12345\n");
+    }
+
+    // --- verify_signature ---
+
+    #[test]
+    fn verify_signature_valid() {
+        use ed25519_dalek::{SigningKey, Signer};
+        let signing_key = SigningKey::from_bytes(&[1u8; 32]);
+        let message = b"test message";
+        let sig = signing_key.sign(message);
+        let pubkey = signing_key.verifying_key().to_bytes();
+        assert!(verify_signature(&pubkey, message, &sig.to_bytes()).is_ok());
+    }
+
+    #[test]
+    fn verify_signature_wrong_message() {
+        use ed25519_dalek::{SigningKey, Signer};
+        let signing_key = SigningKey::from_bytes(&[2u8; 32]);
+        let sig = signing_key.sign(b"correct message");
+        let pubkey = signing_key.verifying_key().to_bytes();
+        assert_eq!(
+            verify_signature(&pubkey, b"wrong message", &sig.to_bytes()),
+            Err("Invalid signature")
+        );
+    }
+
+    #[test]
+    fn verify_signature_wrong_key() {
+        use ed25519_dalek::{SigningKey, Signer};
+        let signing_key = SigningKey::from_bytes(&[3u8; 32]);
+        let other_key = SigningKey::from_bytes(&[4u8; 32]);
+        let message = b"test";
+        let sig = signing_key.sign(message);
+        let wrong_pubkey = other_key.verifying_key().to_bytes();
+        assert_eq!(
+            verify_signature(&wrong_pubkey, message, &sig.to_bytes()),
+            Err("Invalid signature")
+        );
+    }
+
+    #[test]
+    fn verify_signature_full_auth_flow() {
+        // Simulate the full auth signing flow
+        use ed25519_dalek::{SigningKey, Signer};
+        let signing_key = SigningKey::from_bytes(&[5u8; 32]);
+        let pubkey = signing_key.verifying_key().to_bytes();
+
+        let signing_string = build_signing_string("POST", "/boards/general/threads", "1700000000", "{\"title\":\"Hello\",\"body\":\"World\"}");
+        let sig = signing_key.sign(signing_string.as_bytes());
+
+        assert!(verify_signature(&pubkey, signing_string.as_bytes(), &sig.to_bytes()).is_ok());
+    }
 }

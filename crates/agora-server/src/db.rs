@@ -302,3 +302,75 @@ pub fn generate_invite_code() -> String {
         .collect();
     (0..16).map(|_| chars[rng.gen_range(0..chars.len())]).collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_invite_code_length_and_charset() {
+        let code = generate_invite_code();
+        assert_eq!(code.len(), 16);
+        assert!(code.chars().all(|c| c.is_ascii_alphanumeric()));
+    }
+
+    #[test]
+    fn generate_invite_code_unique() {
+        let code1 = generate_invite_code();
+        let code2 = generate_invite_code();
+        assert_ne!(code1, code2);
+    }
+
+    #[test]
+    fn open_and_migrate_in_memory() {
+        let db = open(":memory:");
+        migrate(&db);
+        // If we got here without panic, migrations succeeded.
+        // Verify a table exists by querying it.
+        let conn = db.lock().unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM boards", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn seed_returns_code_first_time_then_none() {
+        let db = open(":memory:");
+        migrate(&db);
+
+        let first = seed(&db);
+        assert!(first.is_some());
+        let code = first.unwrap();
+        assert_eq!(code.len(), 16);
+        assert!(code.chars().all(|c| c.is_ascii_alphanumeric()));
+
+        // Second call should return None (boards already exist)
+        let second = seed(&db);
+        assert!(second.is_none());
+    }
+
+    #[test]
+    fn index_search_does_not_panic() {
+        let db = open(":memory:");
+        migrate(&db);
+        seed(&db);
+
+        let conn = db.lock().unwrap();
+        // Create a thread so we have a valid thread_id
+        conn.execute(
+            "INSERT INTO threads (board_id, author_id, title) VALUES (1, 0, 'Test thread')",
+            [],
+        )
+        .unwrap();
+
+        index_search(&conn, "hello world", "thread", 1, 0);
+        index_search(&conn, "post body text", "post", 1, 1);
+
+        // Verify entries were indexed (exactly 2 from our explicit calls)
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM search_map", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 2);
+    }
+}

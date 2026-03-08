@@ -2,16 +2,32 @@
 
 How to set up and run your own Agora forum server.
 
-## Prerequisites
+## Quick Setup (Recommended)
+
+The fastest way to deploy on Linux:
+
+```bash
+git clone https://github.com/AM-Campbell/agora-forum && cd agora-forum
+cargo build --release
+sudo ./install-server.sh
+```
+
+The install script handles everything: creates a dedicated user, installs Tor, configures the hidden service, sets up systemd, and starts the server. It will print your `.onion` address and bootstrap invite code at the end.
+
+## Manual Setup
+
+If you prefer to set things up yourself, or are on macOS, follow the steps below.
+
+### Prerequisites
 
 - **Rust toolchain** — install via [rustup](https://rustup.rs/)
 - **Tor** — for exposing the server as a hidden service
 - **Linux or macOS** — the server runs on both; Linux recommended for production
 
-## Building
+### Building
 
 ```bash
-git clone <repo-url> && cd agora-forum
+git clone https://github.com/AM-Campbell/agora-forum && cd agora-forum
 cargo build --release
 ```
 
@@ -20,7 +36,7 @@ This produces two binaries:
 - `target/release/agora-server` — the forum server
 - `target/release/agora` — the client
 
-## First Run
+### First Run
 
 ```bash
 ./agora-server
@@ -40,7 +56,13 @@ AGORA server listening on 127.0.0.1:8080
 
 **Save this invite code.** The first user to register with it becomes the forum admin.
 
-## Environment Variables
+If you missed the code, you can retrieve it later:
+
+```bash
+agora-server invite-code
+```
+
+### Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
@@ -58,9 +80,9 @@ If `AGORA_NAME` is set, the client displays it in the header bar instead of the 
 
 The server always binds to localhost — Tor handles external exposure.
 
-## Setting Up Tor
+### Setting Up Tor
 
-### Install Tor
+#### Install Tor
 
 ```bash
 # Debian/Ubuntu
@@ -73,7 +95,7 @@ sudo pacman -S tor
 brew install tor
 ```
 
-### Configure the Hidden Service
+#### Configure the Hidden Service
 
 Edit your Tor config (usually `/etc/tor/torrc`):
 
@@ -84,7 +106,7 @@ HiddenServicePort 80 127.0.0.1:8080
 
 Make sure the port matches your `AGORA_BIND` setting.
 
-### Start Tor
+#### Start Tor
 
 ```bash
 # systemd (Debian/Ubuntu/Arch)
@@ -94,13 +116,69 @@ sudo systemctl enable --now tor
 brew services start tor
 ```
 
-### Get Your .onion Address
+#### Get Your .onion Address
 
 ```bash
 sudo cat /var/lib/tor/agora/hostname
 ```
 
 This is the address you'll give to users. It looks like: `abc123def456xyz789.onion`
+
+### Running as a systemd Service
+
+Create `/etc/systemd/system/agora.service`:
+
+```ini
+[Unit]
+Description=Agora Forum Server
+After=network.target tor.service
+
+[Service]
+Type=simple
+User=agora
+Group=agora
+WorkingDirectory=/var/lib/agora
+Environment=AGORA_NAME=My Forum
+Environment=AGORA_DB=/var/lib/agora/forum.db
+Environment=AGORA_BIND=127.0.0.1:8080
+ExecStart=/usr/local/bin/agora-server
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/agora
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Set up:
+
+```bash
+# Create user and directory
+sudo useradd -r -s /usr/sbin/nologin agora
+sudo mkdir -p /var/lib/agora
+sudo chown agora:agora /var/lib/agora
+
+# Install binary
+sudo cp target/release/agora-server /usr/local/bin/
+
+# Enable and start
+sudo systemctl enable --now agora
+```
+
+Check status:
+
+```bash
+sudo systemctl status agora
+sudo journalctl -u agora -f
+```
+
+**Note:** The `ProtectHome=true` setting blocks access to `/home/`. Make sure `WorkingDirectory` and `AGORA_DB` point to `/var/lib/agora`, not a home directory.
 
 ## Registering the First User (Admin)
 
@@ -112,17 +190,38 @@ agora setup
 
 Enter:
 - **Server address**: `http://your-address.onion`
-- **Invite code**: the bootstrap code from first run
+- **Invite code**: the bootstrap code from first run (or `agora-server invite-code`)
 - **Username**: your chosen name
 
 This user is automatically assigned the **admin** role.
+
+## Migrating to a New Server
+
+To move your forum to a new machine (or a new .onion address):
+
+1. **Stop the old server**: `sudo systemctl stop agora`
+
+2. **Copy the database**: Use the safe backup method:
+   ```bash
+   sqlite3 /var/lib/agora/forum.db ".backup /tmp/agora-backup.db"
+   ```
+   Copy `agora-backup.db` to the new machine.
+
+3. **Set up the new server**: Run `install-server.sh` and when prompted for an existing database, provide the path to the backup file. Or if setting up manually, set `AGORA_DB` to point at the copied file.
+
+4. **Tell your users**: They need to update their client config:
+   ```bash
+   agora servers update-address http://old-address.onion http://new-address.onion
+   ```
+
+The database is fully portable — all user accounts, posts, and attachments are in that single file.
 
 ## Managing Boards
 
 Boards are created during database seeding. To customize them, use SQLite directly:
 
 ```bash
-sqlite3 agora.db
+sqlite3 /var/lib/agora/forum.db
 ```
 
 ```sql
@@ -200,13 +299,15 @@ Soft-deleted posts show "[This post has been deleted by a moderator]" to users. 
 The entire forum state lives in a single SQLite file. Back it up with:
 
 ```bash
-sqlite3 agora.db ".backup /path/to/backup.db"
+sqlite3 /var/lib/agora/forum.db ".backup /var/lib/agora/backups/forum-$(date +%Y%m%d).db"
 ```
 
-Or simply copy the file (safe with WAL mode as long as the `-wal` and `-shm` files are included):
+Or simply copy the file when the server is stopped:
 
 ```bash
-cp agora.db agora.db-wal agora.db-shm /path/to/backup/
+sudo systemctl stop agora
+cp /var/lib/agora/forum.db /path/to/backup/
+sudo systemctl start agora
 ```
 
 Automate with cron:
@@ -221,14 +322,12 @@ Automate with cron:
 The server can host client binaries for users to download over Tor. Place cross-compiled binaries in a `static/` directory next to the server:
 
 ```bash
-mkdir -p static/
+mkdir -p /var/lib/agora/static/
 
-# Cross-compile for different platforms (example)
-cargo build --release --bin agora --target x86_64-unknown-linux-gnu
-cp target/x86_64-unknown-linux-gnu/release/agora static/agora-linux-x86_64
-
-cargo build --release --bin agora --target aarch64-unknown-linux-gnu
-cp target/aarch64-unknown-linux-gnu/release/agora static/agora-linux-aarch64
+# Copy binaries from a release build
+cp agora-linux-x86_64 /var/lib/agora/static/
+cp agora-linux-aarch64 /var/lib/agora/static/
+cp agora-macos-aarch64 /var/lib/agora/static/
 ```
 
 Users can then download the client via Tor:
@@ -239,62 +338,6 @@ chmod +x agora
 ```
 
 The `GET /` landing page automatically shows download instructions.
-
-## Running as a Service
-
-### systemd
-
-Create `/etc/systemd/system/agora.service`:
-
-```ini
-[Unit]
-Description=Agora Forum Server
-After=network.target tor.service
-
-[Service]
-Type=simple
-User=agora
-Group=agora
-WorkingDirectory=/var/lib/agora
-Environment=AGORA_NAME=My Forum
-Environment=AGORA_DB=/var/lib/agora/forum.db
-Environment=AGORA_BIND=127.0.0.1:8080
-ExecStart=/usr/local/bin/agora-server
-Restart=on-failure
-RestartSec=5
-
-# Hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/agora
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Set up:
-
-```bash
-# Create user and directory
-sudo useradd -r -s /usr/sbin/nologin agora
-sudo mkdir -p /var/lib/agora
-sudo chown agora:agora /var/lib/agora
-
-# Install binary
-sudo cp target/release/agora-server /usr/local/bin/
-
-# Enable and start
-sudo systemctl enable --now agora
-```
-
-Check status:
-
-```bash
-sudo systemctl status agora
-sudo journalctl -u agora -f
-```
 
 ## Security Notes
 
@@ -323,14 +366,14 @@ agora status
 Check database size:
 
 ```bash
-ls -lh agora.db
+ls -lh /var/lib/agora/forum.db
 ```
 
 Check user count and activity:
 
 ```bash
-sqlite3 agora.db "SELECT COUNT(*) FROM users WHERE is_banned = 0;"
-sqlite3 agora.db "SELECT COUNT(*) FROM users WHERE last_seen_at > datetime('now', '-7 days');"
+sqlite3 /var/lib/agora/forum.db "SELECT COUNT(*) FROM users WHERE is_banned = 0;"
+sqlite3 /var/lib/agora/forum.db "SELECT COUNT(*) FROM users WHERE last_seen_at > datetime('now', '-7 days');"
 ```
 
 ## Database Maintenance
@@ -339,13 +382,13 @@ SQLite is low-maintenance, but for large forums:
 
 ```bash
 # Reclaim space after many deletions
-sqlite3 agora.db "VACUUM;"
+sqlite3 /var/lib/agora/forum.db "VACUUM;"
 
 # Check database integrity
-sqlite3 agora.db "PRAGMA integrity_check;"
+sqlite3 /var/lib/agora/forum.db "PRAGMA integrity_check;"
 
 # See database size breakdown
-sqlite3 agora.db "SELECT name, SUM(pgsize) FROM dbstat GROUP BY name ORDER BY 2 DESC;"
+sqlite3 /var/lib/agora/forum.db "SELECT name, SUM(pgsize) FROM dbstat GROUP BY name ORDER BY 2 DESC;"
 ```
 
 ## Local Development (No Tor)
@@ -368,7 +411,11 @@ python3 tests/test_e2e.py
 
 ## Troubleshooting
 
-**"BOOTSTRAP INVITE CODE" not printed**: The database already exists from a previous run. Delete `agora.db` to start fresh, or check for existing users: `sqlite3 agora.db "SELECT * FROM invite_codes WHERE used_by IS NULL;"`
+**"BOOTSTRAP INVITE CODE" not printed**: The database already exists from a previous run. Retrieve existing unused codes with: `agora-server invite-code`
+
+**"Process exited with status 200"**: The binary is for the wrong CPU architecture. Check with `uname -m` and `file agora-server`. Build from source if no matching binary exists.
+
+**"Permission denied" with systemd**: If using `ProtectHome=true`, the `WorkingDirectory` and `AGORA_DB` must NOT be under `/home/`. Use `/var/lib/agora` instead.
 
 **Client can't connect**: Verify Tor is running (`systemctl status tor`), the hidden service is configured, and the `.onion` address is correct. The client auto-detects SOCKS5 proxy on ports 9050 and 9150.
 

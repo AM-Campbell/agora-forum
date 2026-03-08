@@ -3,6 +3,7 @@ mod db;
 mod models;
 mod rate_limit;
 mod routes;
+mod validation;
 
 use axum::{
     middleware,
@@ -29,7 +30,13 @@ async fn main() {
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("AGORA server");
         println!();
-        println!("Usage: agora-server");
+        println!("Usage: agora-server [command]");
+        println!();
+        println!("Commands:");
+        println!("  (none)        Start the server");
+        println!("  invite-code   Show unused invite codes from the database");
+        println!("  --help        Show this help message");
+        println!("  --version     Show version");
         println!();
         println!("Environment variables:");
         println!("  AGORA_NAME  Server name shown to users (default: none)");
@@ -38,11 +45,37 @@ async fn main() {
         println!("  AGORA_BIND  Listen address (default: 127.0.0.1:8080)");
         println!();
         println!("On first run, creates the database and prints a bootstrap invite code.");
-        println!("See SERVER-GUIDE.md for full documentation.");
+        println!("To retrieve the code later: agora-server invite-code");
+        println!();
+        println!("Quick setup: sudo ./install-server.sh");
+        println!("Full docs:   SERVER-GUIDE.md");
         return;
     }
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("agora-server {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    if args.iter().any(|a| a == "invite-code") {
+        // Show unused bootstrap invite code from the database
+        let db_path = std::env::var("AGORA_DB").unwrap_or_else(|_| "agora.db".to_string());
+        let conn = rusqlite::Connection::open(&db_path).expect("failed to open database");
+        let mut stmt = conn
+            .prepare("SELECT code FROM invite_codes WHERE used_by IS NULL ORDER BY id ASC")
+            .expect("failed to query invite codes");
+        let codes: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .expect("failed to read invite codes")
+            .filter_map(|r| r.ok())
+            .collect();
+        if codes.is_empty() {
+            println!("No unused invite codes found.");
+            println!("All invite codes have been used. Ask an existing user to run: agora invite");
+        } else {
+            println!("Unused invite codes:");
+            for code in &codes {
+                println!("  {}", code);
+            }
+        }
         return;
     }
 

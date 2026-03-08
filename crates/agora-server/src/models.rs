@@ -27,3 +27,27 @@ impl ErrorBody {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_body_new_from_str() {
+        let body = ErrorBody::new("something went wrong");
+        assert_eq!(body.error, "something went wrong");
+    }
+
+    #[test]
+    fn error_body_new_from_string() {
+        let body = ErrorBody::new(String::from("another error"));
+        assert_eq!(body.error, "another error");
+    }
+
+    #[test]
+    fn error_body_serializes_to_json() {
+        let body = ErrorBody::new("test error");
+        let json = serde_json::to_string(&body).unwrap();
+        assert!(json.contains("\"error\":\"test error\""));
+    }
+}

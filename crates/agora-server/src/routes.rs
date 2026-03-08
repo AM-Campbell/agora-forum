@@ -10,6 +10,7 @@ use tracing::{error, info};
 use crate::auth::AuthUser;
 use crate::db;
 use crate::models::{ErrorBody, PaginationParams, SearchParams};
+use crate::validation;
 use crate::AppState;
 use agora_common::*;
 
@@ -107,24 +108,13 @@ pub async fn register(
     let db = &state.db;
     // Validate username
     let username = req.username.trim().to_lowercase();
-    if username.len() < MIN_USERNAME_LEN || username.len() > MAX_USERNAME_LEN {
-        return err(StatusCode::BAD_REQUEST, format!("Username must be {}-{} characters", MIN_USERNAME_LEN, MAX_USERNAME_LEN));
-    }
-    if !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return err(
-            StatusCode::BAD_REQUEST,
-            "Username may only contain alphanumeric characters and underscores",
-        );
-    }
-    if username.starts_with('_') {
-        return err(StatusCode::BAD_REQUEST, "Username may not start with an underscore");
+    if let Err(msg) = validation::validate_username(&username) {
+        return err(StatusCode::BAD_REQUEST, msg);
     }
 
     // Validate public key is valid base64 and correct length (32 bytes for ed25519)
-    match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &req.public_key) {
-        Ok(bytes) if bytes.len() == 32 => {}
-        Ok(_) => return err(StatusCode::BAD_REQUEST, "Invalid public key length"),
-        Err(_) => return err(StatusCode::BAD_REQUEST, "Invalid public key encoding"),
+    if let Err(msg) = validation::validate_public_key_b64(&req.public_key) {
+        return err(StatusCode::BAD_REQUEST, msg);
     }
 
     let conn = db.lock().unwrap_or_else(|e| e.into_inner());
@@ -553,13 +543,13 @@ pub async fn create_thread(
     let title = req.title.trim().to_string();
     let body = req.body.trim().to_string();
 
-    if title.is_empty() || title.len() > MAX_TITLE_LEN {
+    if let Err(_) = validation::validate_thread_title(&title) {
         return err(
             StatusCode::BAD_REQUEST,
             format!("Title must be 1-{} characters", MAX_TITLE_LEN),
         );
     }
-    if body.is_empty() || body.len() > MAX_BODY_LEN {
+    if let Err(_) = validation::validate_post_body(&body) {
         return err(
             StatusCode::BAD_REQUEST,
             format!("Body must be 1-{} characters", MAX_BODY_LEN),
@@ -631,7 +621,7 @@ pub async fn create_post(
 ) -> Response {
     let body = req.body.trim().to_string();
 
-    if body.is_empty() || body.len() > MAX_BODY_LEN {
+    if let Err(_) = validation::validate_post_body(&body) {
         return err(
             StatusCode::BAD_REQUEST,
             format!("Body must be 1-{} characters", MAX_BODY_LEN),
@@ -716,7 +706,7 @@ pub async fn edit_post(
 ) -> Response {
     let new_body = req.body.trim().to_string();
 
-    if new_body.is_empty() || new_body.len() > MAX_BODY_LEN {
+    if let Err(_) = validation::validate_post_body(&new_body) {
         return err(StatusCode::BAD_REQUEST, format!("Body must be 1-{} characters", MAX_BODY_LEN));
     }
 
@@ -1184,22 +1174,17 @@ pub async fn upload_attachment(
         return err(StatusCode::BAD_REQUEST, format!("Maximum {} attachments per post", MAX_ATTACHMENTS_PER_POST));
     }
 
-    let filename: String = req.filename.trim()
-        .chars()
-        .filter(|c| !c.is_control() && *c != '/' && *c != '\\')
-        .collect();
+    let filename = validation::sanitize_filename(&req.filename);
     if filename.is_empty() || filename.len() > MAX_FILENAME_LEN {
         return err(StatusCode::BAD_REQUEST, format!("Filename must be 1-{} characters", MAX_FILENAME_LEN));
     }
 
     // Sanitize content type — verify against magic bytes for image types
     let declared_ct = sanitize_content_type(&req.content_type);
-    let content_type = match declared_ct.as_str() {
-        "image/png" if !data.starts_with(&[0x89, 0x50, 0x4E, 0x47]) => "application/octet-stream".to_string(),
-        "image/jpeg" if !data.starts_with(&[0xFF, 0xD8, 0xFF]) => "application/octet-stream".to_string(),
-        "image/gif" if !data.starts_with(b"GIF8") => "application/octet-stream".to_string(),
-        "image/webp" if data.len() < 12 || &data[8..12] != b"WEBP" => "application/octet-stream".to_string(),
-        _ => declared_ct,
+    let content_type = if !validation::verify_content_type_magic(&data, &declared_ct) {
+        "application/octet-stream".to_string()
+    } else {
+        declared_ct
     };
     let size_bytes = data.len() as i64;
 
@@ -1517,14 +1502,7 @@ pub async fn search(
     // FTS search (optionally filtered by author)
 
     // Sanitize FTS5 query: wrap each word in quotes to prevent FTS syntax injection
-    let query: String = raw_query
-        .split_whitespace()
-        .map(|word| {
-            let safe: String = word.chars().filter(|c| *c != '"').collect();
-            format!("\"{}\"", safe)
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
+    let query = validation::escape_fts_query(&raw_query);
 
     // Check if FTS table exists
     let fts_exists: bool = conn
@@ -1953,7 +1931,7 @@ pub async fn get_mentions(
     };
 
     // Escape LIKE special characters in username
-    let escaped_username = username.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+    let escaped_username = validation::escape_sql_like(&username);
     let pattern = format!("%@{}%", escaped_username);
 
     let total: i64 = conn
@@ -2008,4 +1986,114 @@ pub async fn get_mentions(
         }),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- paginate tests ---
+
+    #[test]
+    fn paginate_first_page() {
+        let (page, total_pages, offset) = paginate(100, 20, 1);
+        assert_eq!(page, 1);
+        assert_eq!(total_pages, 5);
+        assert_eq!(offset, 0);
+    }
+
+    #[test]
+    fn paginate_last_page() {
+        let (page, total_pages, offset) = paginate(100, 20, 5);
+        assert_eq!(page, 5);
+        assert_eq!(total_pages, 5);
+        assert_eq!(offset, 80);
+    }
+
+    #[test]
+    fn paginate_page_out_of_range_clamped() {
+        let (page, total_pages, offset) = paginate(100, 20, 999);
+        assert_eq!(page, 5);
+        assert_eq!(total_pages, 5);
+        assert_eq!(offset, 80);
+    }
+
+    #[test]
+    fn paginate_zero_items() {
+        let (page, total_pages, offset) = paginate(0, 20, 1);
+        // total_pages should be at least 1
+        assert_eq!(page, 1);
+        assert_eq!(total_pages, 1);
+        assert_eq!(offset, 0);
+    }
+
+    #[test]
+    fn paginate_partial_last_page() {
+        let (page, total_pages, offset) = paginate(21, 20, 2);
+        assert_eq!(page, 2);
+        assert_eq!(total_pages, 2);
+        assert_eq!(offset, 20);
+    }
+
+    #[test]
+    fn paginate_exact_fit() {
+        let (page, total_pages, offset) = paginate(40, 20, 2);
+        assert_eq!(page, 2);
+        assert_eq!(total_pages, 2);
+        assert_eq!(offset, 20);
+    }
+
+    // --- is_mod_or_admin tests ---
+
+    #[test]
+    fn is_mod_or_admin_admin() {
+        assert!(is_mod_or_admin("admin"));
+    }
+
+    #[test]
+    fn is_mod_or_admin_mod() {
+        assert!(is_mod_or_admin("mod"));
+    }
+
+    #[test]
+    fn is_mod_or_admin_member() {
+        assert!(!is_mod_or_admin("member"));
+    }
+
+    #[test]
+    fn is_mod_or_admin_empty() {
+        assert!(!is_mod_or_admin(""));
+    }
+
+    // --- sanitize_content_type tests ---
+
+    #[test]
+    fn sanitize_content_type_known_types() {
+        assert_eq!(sanitize_content_type("image/png"), "image/png");
+        assert_eq!(sanitize_content_type("application/pdf"), "application/pdf");
+        assert_eq!(sanitize_content_type("text/plain"), "text/plain");
+    }
+
+    #[test]
+    fn sanitize_content_type_case_insensitive() {
+        assert_eq!(sanitize_content_type("Image/PNG"), "Image/PNG");
+        assert_eq!(sanitize_content_type("TEXT/PLAIN"), "TEXT/PLAIN");
+    }
+
+    #[test]
+    fn sanitize_content_type_unknown() {
+        assert_eq!(
+            sanitize_content_type("text/html"),
+            "application/octet-stream"
+        );
+        assert_eq!(
+            sanitize_content_type("application/javascript"),
+            "application/octet-stream"
+        );
+    }
+
+    #[test]
+    fn sanitize_content_type_empty() {
+        assert_eq!(sanitize_content_type(""), "application/octet-stream");
+    }
 }

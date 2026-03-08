@@ -108,3 +108,117 @@ pub fn spawn_cleanup_task(limiter: RateLimiterState) {
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_normal_request_passes() {
+        let mut limiter = RateLimiter::default();
+        assert!(limiter.check("user1", false).is_ok());
+    }
+
+    #[test]
+    fn check_general_limit_exceeded() {
+        let mut limiter = RateLimiter::default();
+        for _ in 0..GENERAL_LIMIT {
+            limiter.check("user1", false).unwrap();
+        }
+        let result = limiter.check("user1", false);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Rate limit exceeded. Try again later.");
+    }
+
+    #[test]
+    fn check_post_limit_separate_from_general() {
+        let mut limiter = RateLimiter::default();
+        // Exhaust post limit
+        for _ in 0..POST_LIMIT {
+            limiter.check("user1", true).unwrap();
+        }
+        // Post should fail
+        let result = limiter.check("user1", true);
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Post rate limit exceeded. Try again later."
+        );
+        // Non-post general request should still pass (we've made 10 + 1 general requests total)
+        assert!(limiter.check("user1", false).is_ok());
+    }
+
+    #[test]
+    fn check_register_normal_passes() {
+        let mut limiter = RateLimiter::default();
+        assert!(limiter.check_register().is_ok());
+    }
+
+    #[test]
+    fn check_register_limit_exceeded() {
+        let mut limiter = RateLimiter::default();
+        for _ in 0..REGISTER_LIMIT {
+            limiter.check_register().unwrap();
+        }
+        let result = limiter.check_register();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Too many registration attempts. Try again later."
+        );
+    }
+
+    #[test]
+    fn cleanup_removes_old_entries() {
+        let mut limiter = RateLimiter::default();
+        // Manually insert an old record
+        let old_timestamp = now_secs() - GENERAL_WINDOW_SECS - 1;
+        limiter.windows.insert(
+            "old_user".to_string(),
+            UserWindow {
+                general: vec![RequestRecord {
+                    timestamp: old_timestamp,
+                }],
+                posts: vec![RequestRecord {
+                    timestamp: old_timestamp,
+                }],
+            },
+        );
+        // Also insert a current record
+        limiter.check("current_user", false).unwrap();
+
+        limiter.cleanup();
+
+        // Old user should be removed entirely
+        assert!(!limiter.windows.contains_key("old_user"));
+        // Current user should remain
+        assert!(limiter.windows.contains_key("current_user"));
+    }
+
+    #[test]
+    fn cleanup_removes_old_register_attempts() {
+        let mut limiter = RateLimiter::default();
+        let old_timestamp = now_secs() - REGISTER_WINDOW_SECS - 1;
+        limiter.register_attempts.push(RequestRecord {
+            timestamp: old_timestamp,
+        });
+        limiter.check_register().unwrap();
+
+        limiter.cleanup();
+
+        // Only the recent attempt should remain
+        assert_eq!(limiter.register_attempts.len(), 1);
+    }
+
+    #[test]
+    fn different_users_have_independent_limits() {
+        let mut limiter = RateLimiter::default();
+        for _ in 0..GENERAL_LIMIT {
+            limiter.check("user1", false).unwrap();
+        }
+        // user1 is exhausted
+        assert!(limiter.check("user1", false).is_err());
+        // user2 should be fine
+        assert!(limiter.check("user2", false).is_ok());
+    }
+}
