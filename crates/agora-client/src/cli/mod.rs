@@ -10,6 +10,7 @@ pub mod invite;
 pub mod members;
 pub mod mentions;
 pub mod post;
+pub mod profile;
 pub mod react;
 pub mod read;
 pub mod reply;

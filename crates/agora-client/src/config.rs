@@ -118,7 +118,7 @@ pub fn servers_dir() -> PathBuf {
     agora_dir().join("servers")
 }
 
-fn server_hash(server_addr: &str) -> String {
+pub fn server_hash(server_addr: &str) -> String {
     let hash = Sha256::digest(server_addr.as_bytes());
     hex::encode(&hash[..8])
 }

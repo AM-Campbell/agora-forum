@@ -185,6 +185,11 @@ Example:
     /// View posts that mention you
     #[command(name = "mentions")]
     Mentions,
+    /// Export or import your profile (identity keys + server configs)
+    Profile {
+        #[command(subcommand)]
+        action: ProfileAction,
+    },
     /// Quick-start guide and help topics
     Guide {
         /// Topic: getting-started, tui, cli, servers, moderation
@@ -205,6 +210,31 @@ enum ServerAction {
     SetDefault {
         /// Server address to set as default
         server_addr: String,
+    },
+    /// Update a server's address (e.g. when the .onion changes)
+    UpdateAddress {
+        /// Current server address
+        old_address: String,
+        /// New server address
+        new_address: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfileAction {
+    /// Export identity and server configs to a file
+    Export {
+        /// Output file path (default: agora-profile.toml)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Import identity and server configs from a file
+    Import {
+        /// Path to the profile export file
+        file: String,
+        /// Overwrite existing server configs without prompting
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -265,6 +295,14 @@ async fn main() {
                     println!("Default server set to: {}", server_addr);
                 })
             }
+            Some(ServerAction::UpdateAddress {
+                old_address,
+                new_address,
+            }) => cli::servers::update_address(&old_address, &new_address),
+        },
+        Some(Commands::Profile { action }) => match action {
+            ProfileAction::Export { output } => cli::profile::export(output.as_deref()),
+            ProfileAction::Import { file, force } => cli::profile::import(&file, force),
         },
         Some(Commands::Guide { topic }) => cli::guide::run(topic.as_deref()),
         Some(cmd) => run_authenticated(cmd, cli.server.as_deref()).await,
@@ -437,7 +475,7 @@ async fn run_authenticated(cmd: Commands, override_server: Option<&str>) -> Resu
             }
             Ok(())
         }
-        Commands::Setup | Commands::Servers { .. } | Commands::Guide { .. } => unreachable!(),
+        Commands::Setup | Commands::Servers { .. } | Commands::Profile { .. } | Commands::Guide { .. } => unreachable!(),
     }
 }
 
