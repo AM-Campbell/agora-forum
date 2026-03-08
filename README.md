@@ -94,7 +94,18 @@ agora bookmark 42                        # Bookmark a thread
 agora status                             # Check your connection
 ```
 
-For a complete list, run `agora --help`.
+For a complete list, run `agora --help` or `agora guide` for in-terminal documentation with examples.
+
+## Backing Up Your Identity
+
+Your identity (keypair + server configs) lives in `~/.agora/`. To move to a new device:
+
+```
+agora profile export -o my-backup.toml   # On old device
+agora profile import my-backup.toml      # On new device
+```
+
+Keep this file safe — it contains your private keys.
 
 ## Troubleshooting
 
@@ -126,7 +137,8 @@ Then restart your terminal.
 
 ## More Information
 
-- [USER-GUIDE.md](USER-GUIDE.md) — Complete user manual
+Run `agora guide` for built-in documentation covering all commands, TUI shortcuts, server management, and moderation.
+
 - [SERVER-GUIDE.md](SERVER-GUIDE.md) — Running your own Agora server
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Technical internals for contributors
 
@@ -153,5 +165,5 @@ cargo run --bin agora -- setup  # Use http://127.0.0.1:8080 as server address
 ### Tests
 
 ```
-python3 tests/test_e2e.py       # 93 integration tests
+python3 tests/test_e2e.py       # Integration tests
 ```

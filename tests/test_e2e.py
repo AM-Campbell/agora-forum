@@ -2135,5 +2135,166 @@ class TestHardenedBehavior(AgoraTestCase):
             self.assertEqual(e.code, 404)
 
 
+class TestProfileExportImport(AgoraTestCase):
+    """Test profile export and import."""
+
+    def test_01_setup_user(self):
+        """Register a user for profile tests."""
+        stdin = setup_stdin(self.port, self.bootstrap_code, "profileuser")
+        result = self.agora("setup", stdin_text=stdin)
+        self.assertIn("Welcome to AGORA", result.stdout)
+
+    def test_02_profile_export(self):
+        """agora profile export should create a TOML file with identity."""
+        export_path = os.path.join(self.tmpdir, "test-profile.toml")
+        result = self.agora("profile", "export", "-o", export_path)
+        self.assertIn("exported", result.stdout.lower())
+        self.assertTrue(os.path.exists(export_path))
+
+        content = open(export_path).read()
+        self.assertIn("version = 1", content)
+        self.assertIn("identity_key", content)
+        self.assertIn(f"127.0.0.1:{self.port}", content)
+        self.assertIn("profileuser", content)
+
+    def test_03_profile_import_to_new_home(self):
+        """agora profile import should restore identity on a fresh home."""
+        # Export first
+        export_path = os.path.join(self.tmpdir, "test-profile2.toml")
+        self.agora("profile", "export", "-o", export_path)
+
+        # Import into a fresh home
+        tmp2 = tempfile.mkdtemp(prefix="agora_import_")
+        try:
+            env = os.environ.copy()
+            env["HOME"] = tmp2
+            env.pop("ALL_PROXY", None)
+            env.pop("all_proxy", None)
+            result = subprocess.run(
+                [CLIENT_BIN, "profile", "import", export_path, "--force"],
+                capture_output=True, text=True, env=env, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Imported 1 server", result.stdout)
+
+            # Verify the imported identity works (can talk to server)
+            result = subprocess.run(
+                [CLIENT_BIN, "status"],
+                capture_output=True, text=True, env=env, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("profileuser", result.stdout)
+        finally:
+            shutil.rmtree(tmp2)
+
+    def test_04_profile_import_skip_existing(self):
+        """Import should skip existing servers when user says no."""
+        export_path = os.path.join(self.tmpdir, "test-profile3.toml")
+        self.agora("profile", "export", "-o", export_path)
+
+        # Import over existing config, answer 'n'
+        result = self.agora("profile", "import", export_path, stdin_text="n\n")
+        self.assertIn("Skipped 1", result.stdout)
+
+
+class TestServersUpdateAddress(AgoraTestCase):
+    """Test server address update."""
+
+    def test_01_setup_user(self):
+        """Register a user for update-address tests."""
+        stdin = setup_stdin(self.port, self.bootstrap_code, "addruser")
+        result = self.agora("setup", stdin_text=stdin)
+        self.assertIn("Welcome to AGORA", result.stdout)
+
+    def test_02_update_address(self):
+        """agora servers update-address should rename the server config."""
+        old_addr = f"http://127.0.0.1:{self.port}"
+        new_addr = "http://fakenewadr.onion"
+
+        result = self.agora("servers", "update-address", old_addr, new_addr)
+        self.assertIn(new_addr, result.stdout)
+
+        # Old dir should be gone, new dir should exist
+        old_hash = server_hash(old_addr)
+        new_hash = server_hash(new_addr)
+        old_dir = os.path.join(self.agora_home, "servers", old_hash)
+        new_dir = os.path.join(self.agora_home, "servers", new_hash)
+        self.assertFalse(os.path.exists(old_dir))
+        self.assertTrue(os.path.exists(new_dir))
+
+        # server.toml should have the new address
+        srv_toml = open(os.path.join(new_dir, "server.toml")).read()
+        self.assertIn(f'server = "{new_addr}"', srv_toml)
+
+        # Rename back so subsequent tests work
+        self.agora("servers", "update-address", new_addr, old_addr)
+
+    def test_03_update_nonexistent_fails(self):
+        """Updating a non-configured server should fail."""
+        result = self.agora(
+            "servers", "update-address", "http://nonexistent.onion", "http://new.onion",
+            expect_fail=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+
+class TestServersRemove(AgoraTestCase):
+    """Test server removal."""
+
+    def test_01_setup_user(self):
+        """Register a user for remove tests."""
+        stdin = setup_stdin(self.port, self.bootstrap_code, "rmuser")
+        result = self.agora("setup", stdin_text=stdin)
+        self.assertIn("Welcome to AGORA", result.stdout)
+
+    def test_02_remove_server_cancel(self):
+        """Declining removal should leave config intact."""
+        addr = f"http://127.0.0.1:{self.port}"
+        result = self.agora("servers", "remove", addr, stdin_text="n\n")
+        self.assertIn("Cancelled", result.stdout)
+
+        # Server dir should still exist
+        srv_dir = self.server_dir()
+        self.assertTrue(os.path.exists(srv_dir))
+
+    def test_03_remove_server_confirm(self):
+        """Confirming removal should delete the server directory."""
+        addr = f"http://127.0.0.1:{self.port}"
+        result = self.agora("servers", "remove", addr, stdin_text="y\n")
+        self.assertIn("Removed", result.stdout)
+
+        # Server dir should be gone
+        srv_dir = self.server_dir()
+        self.assertFalse(os.path.exists(srv_dir))
+
+    def test_04_remove_nonexistent_fails(self):
+        """Removing a non-configured server should fail."""
+        result = self.agora(
+            "servers", "remove", "http://nonexistent.onion",
+            expect_fail=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+
+class TestCompletions(AgoraTestCase):
+    """Test shell completions generation."""
+
+    def test_01_bash_completions(self):
+        """agora completions bash should output a bash script."""
+        result = self.agora("completions", "bash")
+        self.assertIn("complete", result.stdout)
+        self.assertIn("agora", result.stdout)
+
+    def test_02_zsh_completions(self):
+        """agora completions zsh should output a zsh script."""
+        result = self.agora("completions", "zsh")
+        self.assertIn("agora", result.stdout)
+
+    def test_03_fish_completions(self):
+        """agora completions fish should output a fish script."""
+        result = self.agora("completions", "fish")
+        self.assertIn("agora", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

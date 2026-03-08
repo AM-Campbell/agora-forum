@@ -148,6 +148,14 @@ const CLI: &str = r#"
     agora bookmark 42                     Toggle bookmark
     agora mentions                        View posts mentioning you
     agora cache-clear                     Clear local cache
+
+  SERVERS & PROFILE
+    agora servers                         List configured servers
+    agora servers set-default <addr>      Set default server
+    agora servers update-address <o> <n>  Update a server's address
+    agora servers remove <addr>           Remove a server
+    agora profile export                  Back up identities
+    agora profile import backup.toml      Restore identities
 "#;
 
 const SERVERS: &str = r#"
@@ -163,9 +171,22 @@ const SERVERS: &str = r#"
   SET DEFAULT
     agora servers set-default <addr>      Set which server to connect to
 
+  UPDATE ADDRESS (server moved to new .onion)
+    agora servers update-address <old> <new>
+
+  REMOVE A SERVER
+    agora servers remove <addr>           Deletes local identity + cache
+
   CONNECT TO SPECIFIC SERVER
     agora --server <addr> boards          Use --server flag on any command
     agora --server <addr>                 Launch TUI for specific server
+
+  PROFILE BACKUP & RESTORE
+    agora profile export                  Export all identities to a file
+    agora profile export -o backup.toml   Export to specific path
+    agora profile import backup.toml      Restore on a new device
+    agora profile import backup.toml --force
+                                          Overwrite without prompting
 
   HOW IT WORKS
     - Each server has its own directory under ~/.agora/servers/
@@ -182,6 +203,11 @@ const SERVERS: &str = r#"
       agora setup
     Or:
       agora --server <new-addr> setup
+
+  SHELL COMPLETIONS
+    agora completions bash >> ~/.bashrc
+    agora completions zsh >> ~/.zshrc
+    agora completions fish > ~/.config/fish/completions/agora.fish
 "#;
 
 const MODERATION: &str = r#"

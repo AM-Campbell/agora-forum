@@ -46,6 +46,50 @@ pub fn update_address(old_addr: &str, new_addr: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub fn remove(server_addr: &str) -> Result<(), String> {
+    let srv_dir = config::server_dir(server_addr);
+    if !srv_dir.exists() {
+        return Err(format!("No server configured for: {}", server_addr));
+    }
+
+    // Confirm
+    eprint!(
+        "Remove server {}? This deletes your local identity and cache. [y/N] ",
+        server_addr
+    );
+    use std::io::Write;
+    std::io::stderr().flush().ok();
+    let mut answer = String::new();
+    std::io::stdin()
+        .read_line(&mut answer)
+        .map_err(|e| format!("Failed to read input: {}", e))?;
+    if !answer.trim().eq_ignore_ascii_case("y") {
+        println!("Cancelled.");
+        return Ok(());
+    }
+
+    std::fs::remove_dir_all(&srv_dir)
+        .map_err(|e| format!("Failed to remove server directory: {}", e))?;
+
+    // Clean up global config references
+    let mut global = config::GlobalConfig::load_or_default();
+    let mut changed = false;
+    if global.default_server.as_deref() == Some(server_addr) {
+        global.default_server = None;
+        changed = true;
+    }
+    if global.last_server.as_deref() == Some(server_addr) {
+        global.last_server = None;
+        changed = true;
+    }
+    if changed {
+        global.save()?;
+    }
+
+    println!("Removed server: {}", server_addr);
+    Ok(())
+}
+
 pub fn run() -> Result<(), String> {
     let servers = config::list_servers();
     let global = config::GlobalConfig::load_or_default();

@@ -150,6 +150,12 @@ DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${BINARY_NAME}
 
 mkdir -p "$INSTALL_DIR"
 
+# Remove old binary if present (data in ~/.agora/ is preserved)
+if [ -f "$INSTALL_DIR/agora" ]; then
+    echo "        Replacing existing installation"
+    rm -f "$INSTALL_DIR/agora"
+fi
+
 if command -v curl >/dev/null 2>&1; then
     curl -fSL "$DOWNLOAD_URL" -o "$INSTALL_DIR/agora" 2>/dev/null
 elif command -v wget >/dev/null 2>&1; then
@@ -220,4 +226,8 @@ echo ""
 echo "  You'll need two things from the person who invited you:"
 echo "    1. A server address (looks like http://xxxx.onion)"
 echo "    2. An invite code (a short string of letters and numbers)"
+echo ""
+echo "  Restoring an existing profile? Run:"
+echo ""
+echo "      agora profile import <your-backup-file>"
 echo ""

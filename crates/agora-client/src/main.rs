@@ -6,7 +6,7 @@ mod editor;
 mod identity;
 mod tui;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "agora", about = "AGORA — private invite-only forum", version = env!("CARGO_PKG_VERSION"),
@@ -202,6 +202,15 @@ Run: agora guide moderation   for full details and examples")]
         #[command(subcommand)]
         action: ModAction,
     },
+    /// Generate shell completions
+    #[command(after_help = "Examples:
+  agora completions bash >> ~/.bashrc
+  agora completions zsh >> ~/.zshrc
+  agora completions fish > ~/.config/fish/completions/agora.fish")]
+    Completions {
+        /// Shell to generate completions for
+        shell: clap_complete::Shell,
+    },
 }
 
 #[derive(Subcommand)]
@@ -217,6 +226,11 @@ enum ServerAction {
         old_address: String,
         /// New server address
         new_address: String,
+    },
+    /// Remove a server (deletes local identity and cache, not server data)
+    Remove {
+        /// Server address to remove
+        server_addr: String,
     },
 }
 
@@ -299,11 +313,23 @@ async fn main() {
                 old_address,
                 new_address,
             }) => cli::servers::update_address(&old_address, &new_address),
+            Some(ServerAction::Remove { server_addr }) => {
+                cli::servers::remove(&server_addr)
+            }
         },
         Some(Commands::Profile { action }) => match action {
             ProfileAction::Export { output } => cli::profile::export(output.as_deref()),
             ProfileAction::Import { file, force } => cli::profile::import(&file, force),
         },
+        Some(Commands::Completions { shell }) => {
+            clap_complete::generate(
+                shell,
+                &mut Cli::command(),
+                "agora",
+                &mut std::io::stdout(),
+            );
+            Ok(())
+        }
         Some(Commands::Guide { topic }) => cli::guide::run(topic.as_deref()),
         Some(cmd) => run_authenticated(cmd, cli.server.as_deref()).await,
         None => run_tui(cli.server.as_deref()).await,
@@ -475,7 +501,7 @@ async fn run_authenticated(cmd: Commands, override_server: Option<&str>) -> Resu
             }
             Ok(())
         }
-        Commands::Setup | Commands::Servers { .. } | Commands::Profile { .. } | Commands::Guide { .. } => unreachable!(),
+        Commands::Setup | Commands::Servers { .. } | Commands::Profile { .. } | Commands::Guide { .. } | Commands::Completions { .. } => unreachable!(),
     }
 }
 
