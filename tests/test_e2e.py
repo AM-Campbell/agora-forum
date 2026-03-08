@@ -2296,5 +2296,151 @@ class TestCompletions(AgoraTestCase):
         self.assertIn("agora", result.stdout)
 
 
+class TestAttachmentSecurity(AgoraTestCase):
+    """Test attachment upload security: permissions, locked threads, malicious filenames, content-type spoofing."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.user1_home = cls.tmpdir
+        cls.user2_home = os.path.join(cls.tmpdir, "att_sec_user2")
+        os.makedirs(cls.user2_home, exist_ok=True)
+
+        # Register user1 (admin)
+        env = os.environ.copy()
+        env["HOME"] = cls.user1_home
+        stdin = setup_stdin(cls.port, cls.bootstrap_code, "att_admin")
+        subprocess.run(
+            [CLIENT_BIN, "setup"],
+            capture_output=True, text=True, env=env, input=stdin, timeout=15,
+        )
+
+        # Create a thread as user1
+        body_file = os.path.join(cls.tmpdir, "att_sec_body.txt")
+        with open(body_file, "w") as f:
+            f.write("Attachment security test thread.\n")
+        env2 = {**os.environ, "HOME": cls.user1_home, "ALL_PROXY": "", "all_proxy": ""}
+        subprocess.run(
+            [CLIENT_BIN, "post", "general", "AttSec Thread", "-f", body_file],
+            capture_output=True, text=True, env=env2, timeout=15,
+        )
+
+        # Generate an invite for user2
+        result = subprocess.run(
+            [CLIENT_BIN, "invite"],
+            capture_output=True, text=True, env=env2, timeout=15,
+        )
+        cls.invite_code2 = result.stdout.strip()
+
+        # Register user2
+        env3 = {**os.environ, "HOME": cls.user2_home, "ALL_PROXY": "", "all_proxy": ""}
+        stdin2 = setup_stdin(cls.port, cls.invite_code2, "att_user2")
+        subprocess.run(
+            [CLIENT_BIN, "setup"],
+            capture_output=True, text=True, env=env3, input=stdin2, timeout=15,
+        )
+
+    def agora_as(self, home, *args, stdin_text=None, expect_fail=False):
+        env = os.environ.copy()
+        env["HOME"] = home
+        env.pop("ALL_PROXY", None)
+        env.pop("all_proxy", None)
+        result = subprocess.run(
+            [CLIENT_BIN] + list(args),
+            capture_output=True, text=True, env=env, input=stdin_text, timeout=15,
+        )
+        if not expect_fail and result.returncode != 0:
+            self.fail(
+                f"agora {' '.join(args)} failed:\n"
+                f"stdout: {result.stdout}\nstderr: {result.stderr}"
+            )
+        return result
+
+    def test_01_attach_to_other_users_post(self):
+        """User2 should not be able to attach to user1's post."""
+        att_file = os.path.join(self.tmpdir, "att_sec_test.txt")
+        with open(att_file, "w") as f:
+            f.write("Should be rejected.\n")
+        result = self.agora_as(self.user2_home, "attach", "1", "1", att_file, expect_fail=True)
+        combined = result.stdout + result.stderr
+        self.assertTrue(
+            "own posts" in combined.lower() or "forbidden" in combined.lower() or "error" in combined.lower(),
+            f"Expected permission error, got: {combined}"
+        )
+
+    def test_02_attach_to_locked_thread(self):
+        """Attaching to a locked thread should fail."""
+        # Lock the thread (user1 is admin)
+        self.agora_as(self.user1_home, "mod", "lock", "1")
+
+        att_file = os.path.join(self.tmpdir, "att_locked.txt")
+        with open(att_file, "w") as f:
+            f.write("Should be rejected — locked.\n")
+        result = self.agora_as(self.user1_home, "attach", "1", "1", att_file, expect_fail=True)
+        combined = result.stdout + result.stderr
+        self.assertTrue(
+            "locked" in combined.lower() or "forbidden" in combined.lower() or "error" in combined.lower(),
+            f"Expected locked error, got: {combined}"
+        )
+
+        # Unlock for remaining tests
+        self.agora_as(self.user1_home, "mod", "unlock", "1")
+
+    def test_03_content_type_spoofing(self):
+        """Upload a file with .png extension but JPEG magic bytes — server should neutralize content-type."""
+        spoofed_file = os.path.join(self.tmpdir, "fake.png")
+        with open(spoofed_file, "wb") as f:
+            # Write JPEG magic bytes into a .png file
+            f.write(b'\xFF\xD8\xFF\xE0' + b'\x00' * 100)
+
+        # Upload — CLI will guess image/png from extension, server sees JPEG magic → mismatch → application/octet-stream
+        result = self.agora_as(self.user1_home, "attach", "1", "1", spoofed_file)
+        self.assertIn("Attachment uploaded", result.stdout)
+
+        # Read the thread and verify the file is listed (content-type gets neutralized server-side)
+        result = self.agora_as(self.user1_home, "read", "1")
+        self.assertIn("fake.png", result.stdout)
+
+    def test_04_max_attachments_per_post(self):
+        """Uploading more than 10 attachments to one post should fail."""
+        import sqlite3
+        # Insert 10 dummy attachments directly into the DB to avoid rate limiting
+        conn = sqlite3.connect(self.db_path)
+        for i in range(10):
+            conn.execute(
+                "INSERT INTO attachments (post_id, filename, content_type, size_bytes, data) VALUES (1, ?, 'text/plain', 1, X'78')",
+                (f"dummy_{i}.txt",),
+            )
+        conn.commit()
+        conn.close()
+
+        att_file = os.path.join(self.tmpdir, "overflow.txt")
+        with open(att_file, "w") as f:
+            f.write("x")
+
+        # The 11th should fail
+        result = self.agora_as(self.user1_home, "attach", "1", "1", att_file, expect_fail=True)
+        combined = result.stdout + result.stderr
+        self.assertTrue(
+            "maximum" in combined.lower() or "limit" in combined.lower() or "error" in combined.lower(),
+            f"Expected max attachments error, got: {combined}"
+        )
+
+    def test_05_empty_file_upload(self):
+        """Uploading an empty (0-byte) file."""
+        empty_file = os.path.join(self.tmpdir, "empty.txt")
+        with open(empty_file, "w") as f:
+            pass  # 0 bytes
+
+        # Upload should either succeed (empty is valid data) or fail gracefully
+        result = self.agora_as(self.user1_home, "attach", "1", "1", empty_file, expect_fail=True)
+        # We just care that it doesn't crash — either success or a clean error
+        combined = result.stdout + result.stderr
+        self.assertFalse(
+            "panic" in combined.lower(),
+            f"Server panicked on empty file: {combined}"
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

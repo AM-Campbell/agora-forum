@@ -66,3 +66,32 @@ pub fn is_displayable_image(content_type: &str) -> bool {
         "image/png" | "image/jpeg" | "image/gif" | "image/webp"
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn displayable_image_types() {
+        assert!(is_displayable_image("image/png"));
+        assert!(is_displayable_image("image/jpeg"));
+        assert!(is_displayable_image("image/gif"));
+        assert!(is_displayable_image("image/webp"));
+    }
+
+    #[test]
+    fn non_displayable_types() {
+        assert!(!is_displayable_image("image/svg+xml"));
+        assert!(!is_displayable_image("application/pdf"));
+        assert!(!is_displayable_image("text/plain"));
+        assert!(!is_displayable_image("application/octet-stream"));
+        assert!(!is_displayable_image(""));
+    }
+
+    #[test]
+    fn displayable_is_case_sensitive() {
+        // matches! is exact — uppercase should not match
+        assert!(!is_displayable_image("IMAGE/PNG"));
+        assert!(!is_displayable_image("Image/Jpeg"));
+    }
+}

@@ -207,6 +207,42 @@ mod tests {
         assert_eq!(sanitize_filename("  photo.png  "), "photo.png");
     }
 
+    #[test]
+    fn sanitize_filename_null_bytes() {
+        assert_eq!(sanitize_filename("file\x00.txt"), "file.txt");
+        assert_eq!(sanitize_filename("\x00\x00\x00"), "");
+    }
+
+    #[test]
+    fn sanitize_filename_unicode() {
+        // Unicode names should pass through (only control chars and path seps stripped)
+        assert_eq!(sanitize_filename("café.txt"), "café.txt");
+        assert_eq!(sanitize_filename("日本語.png"), "日本語.png");
+    }
+
+    #[test]
+    fn sanitize_filename_very_long() {
+        let long_name = "a".repeat(500) + ".txt";
+        let result = sanitize_filename(&long_name);
+        // sanitize_filename doesn't truncate — length check is done by the route handler
+        assert_eq!(result.len(), 504);
+    }
+
+    #[test]
+    fn sanitize_filename_empty_after_sanitize() {
+        // All control chars → empty string
+        assert_eq!(sanitize_filename("\x01\x02\x03"), "");
+        // Only slashes → empty string
+        assert_eq!(sanitize_filename("///"), "");
+    }
+
+    #[test]
+    fn sanitize_filename_dots_only() {
+        // Dots are allowed — the route handler checks the result
+        assert_eq!(sanitize_filename(".."), "..");
+        assert_eq!(sanitize_filename("..."), "...");
+    }
+
     // --- escape_fts_query ---
 
     #[test]

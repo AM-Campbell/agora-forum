@@ -104,3 +104,69 @@ fn guess_content_type(filename: &str) -> String {
     }
     .to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guess_image_types() {
+        assert_eq!(guess_content_type("photo.png"), "image/png");
+        assert_eq!(guess_content_type("photo.jpg"), "image/jpeg");
+        assert_eq!(guess_content_type("photo.jpeg"), "image/jpeg");
+        assert_eq!(guess_content_type("anim.gif"), "image/gif");
+        assert_eq!(guess_content_type("photo.webp"), "image/webp");
+        assert_eq!(guess_content_type("icon.svg"), "image/svg+xml");
+    }
+
+    #[test]
+    fn guess_document_types() {
+        assert_eq!(guess_content_type("doc.pdf"), "application/pdf");
+        assert_eq!(guess_content_type("readme.txt"), "text/plain");
+        assert_eq!(guess_content_type("notes.md"), "text/markdown");
+    }
+
+    #[test]
+    fn guess_code_types() {
+        assert_eq!(guess_content_type("main.rs"), "text/x-rust");
+        assert_eq!(guess_content_type("script.py"), "text/x-python");
+        assert_eq!(guess_content_type("app.js"), "text/javascript");
+        assert_eq!(guess_content_type("data.json"), "application/json");
+        assert_eq!(guess_content_type("config.toml"), "application/toml");
+        assert_eq!(guess_content_type("config.yaml"), "application/yaml");
+        assert_eq!(guess_content_type("config.yml"), "application/yaml");
+    }
+
+    #[test]
+    fn guess_archive_types() {
+        assert_eq!(guess_content_type("archive.zip"), "application/zip");
+        assert_eq!(guess_content_type("archive.tar"), "application/x-tar");
+        assert_eq!(guess_content_type("archive.gz"), "application/gzip");
+    }
+
+    #[test]
+    fn guess_unknown_extension() {
+        assert_eq!(guess_content_type("binary.exe"), "application/octet-stream");
+        assert_eq!(guess_content_type("data.xyz"), "application/octet-stream");
+        assert_eq!(guess_content_type("noext"), "application/octet-stream");
+    }
+
+    #[test]
+    fn guess_case_insensitive() {
+        assert_eq!(guess_content_type("photo.PNG"), "image/png");
+        assert_eq!(guess_content_type("photo.JPG"), "image/jpeg");
+        assert_eq!(guess_content_type("data.JSON"), "application/json");
+    }
+
+    #[test]
+    fn guess_with_path() {
+        assert_eq!(guess_content_type("/home/user/photo.png"), "image/png");
+        assert_eq!(guess_content_type("../docs/readme.md"), "text/markdown");
+    }
+
+    #[test]
+    fn guess_multiple_dots() {
+        assert_eq!(guess_content_type("archive.tar.gz"), "application/gzip");
+        assert_eq!(guess_content_type("my.file.name.txt"), "text/plain");
+    }
+}
