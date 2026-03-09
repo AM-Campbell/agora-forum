@@ -568,7 +568,7 @@ mod tests {
     fn test_app() -> App {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         let cache: Cache = Arc::new(Mutex::new(conn));
-        App::new("test".into(), "Test Server".into(), "testuser".into(), cache)
+        App::new("test".into(), "Test Server".into(), "testuser".into(), cache, None)
     }
 
     fn test_post(id: i64, author: &str, body: &str) -> Post {

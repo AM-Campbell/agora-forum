@@ -10,8 +10,11 @@ use crate::tui::app::App;
 
 /// Render the inbox (conversation list) view.
 pub fn render_inbox(f: &mut Frame, app: &App, area: Rect) {
+    let footer_str = " [Enter] open  [n]ew message  [r]efresh  [?]help  [Esc] back";
+    let footer_h = super::footer_height(footer_str, area.width);
+
     let chunks = Layout::default()
-        .constraints([Constraint::Min(1), Constraint::Length(3)])
+        .constraints([Constraint::Min(1), Constraint::Length(footer_h)])
         .split(area);
 
     let header_block = Block::default()
@@ -58,17 +61,19 @@ pub fn render_inbox(f: &mut Frame, app: &App, area: Rect) {
         f.render_widget(table, inner);
     }
 
-    let footer = Paragraph::new(Line::from(vec![Span::raw(
-        " [Enter] open  [n]ew message  [r]efresh  [?]help  [Esc] back",
-    )]))
-    .block(Block::default().borders(Borders::ALL));
+    let footer = Paragraph::new(Line::from(vec![Span::raw(footer_str)]))
+        .block(Block::default().borders(Borders::ALL))
+        .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[1]);
 }
 
 /// Render a specific DM conversation (decrypted messages).
 pub fn render_thread(f: &mut Frame, app: &App, area: Rect) {
+    let footer_str = " [j/k] scroll  [n]ew reply  [?]help  [Esc] back to inbox";
+    let footer_h = super::footer_height(footer_str, area.width);
+
     let chunks = Layout::default()
-        .constraints([Constraint::Min(1), Constraint::Length(3)])
+        .constraints([Constraint::Min(1), Constraint::Length(footer_h)])
         .split(area);
 
     let partner = app
@@ -107,9 +112,8 @@ pub fn render_thread(f: &mut Frame, app: &App, area: Rect) {
         .scroll((app.scroll_offset as u16, 0));
     f.render_widget(content, inner);
 
-    let footer = Paragraph::new(Line::from(vec![Span::raw(
-        " [j/k] scroll  [n]ew reply  [?]help  [Esc] back to inbox",
-    )]))
-    .block(Block::default().borders(Borders::ALL));
+    let footer = Paragraph::new(Line::from(vec![Span::raw(footer_str)]))
+        .block(Block::default().borders(Borders::ALL))
+        .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[1]);
 }

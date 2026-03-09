@@ -11,8 +11,14 @@ use crate::tui::app::App;
 const LINES_PER_ITEM: usize = 4; // header, meta, snippet, blank
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    let footer_text = format!(
+        " {} mentions  [Enter] open  [?]help  [Esc] back",
+        app.mentions.len()
+    );
+    let footer_h = super::footer_height(&footer_text, area.width);
+
     let chunks = Layout::default()
-        .constraints([Constraint::Min(1), Constraint::Length(3)])
+        .constraints([Constraint::Min(1), Constraint::Length(footer_h)])
         .split(area);
 
     let header_block = Block::default()
@@ -68,10 +74,8 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         f.render_widget(paragraph, inner);
     }
 
-    let footer = Paragraph::new(Line::from(vec![Span::raw(format!(
-        " {} mentions  [Enter] open  [?]help  [Esc] back",
-        app.mentions.len()
-    ))]))
-    .block(Block::default().borders(Borders::ALL));
+    let footer = Paragraph::new(Line::from(vec![Span::raw(footer_text)]))
+        .block(Block::default().borders(Borders::ALL))
+        .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[1]);
 }

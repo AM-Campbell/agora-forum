@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Row, Table},
+    widgets::{Block, Borders, Paragraph, Row, Table, Wrap},
     Frame,
 };
 
@@ -11,8 +11,28 @@ use crate::tui::app::App;
 use crate::tui::boards::format_relative_time;
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    // Compute footer text first so we can size its constraint
+    let page_info = format!(
+        "  page {}/{}",
+        app.current_page, app.total_pages
+    );
+    let page_nav = if app.total_pages > 1 { "  []] next  [[] prev" } else { "" };
+    let w = area.width as usize;
+    let footer_text = if w >= 80 {
+        format!(
+            " [Enter] open  [n]ew thread  [r]efresh  [?]help  [Esc]{}{}",
+            page_nav, page_info
+        )
+    } else {
+        format!(
+            " [Enter] open  [n]ew  [?]help  [Esc]{}",
+            page_nav
+        )
+    };
+    let footer_h = super::footer_height(&footer_text, area.width);
+
     let chunks = Layout::default()
-        .constraints([Constraint::Min(1), Constraint::Length(3)])
+        .constraints([Constraint::Min(1), Constraint::Length(footer_h)])
         .split(area);
 
     let board_name = app
@@ -90,25 +110,8 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let table = Table::new(rows, widths).header(header);
     f.render_widget(table, inner);
 
-    // Page info + footer
-    let page_info = format!(
-        "  page {}/{}",
-        app.current_page, app.total_pages
-    );
-    let page_nav = if app.total_pages > 1 { "  []] next  [[] prev" } else { "" };
-    let w = area.width as usize;
-    let footer_text = if w >= 80 {
-        format!(
-            " [Enter] open  [n]ew thread  [r]efresh  [?]help  [Esc]{}{}",
-            page_nav, page_info
-        )
-    } else {
-        format!(
-            " [Enter] open  [n]ew  [?]help  [Esc]{}",
-            page_nav
-        )
-    };
     let footer = Paragraph::new(Line::from(vec![Span::raw(footer_text)]))
-        .block(Block::default().borders(Borders::ALL));
+        .block(Block::default().borders(Borders::ALL))
+        .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[1]);
 }

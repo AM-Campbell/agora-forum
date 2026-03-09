@@ -2,15 +2,18 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Row, Table},
+    widgets::{Block, Borders, Paragraph, Row, Table, Wrap},
     Frame,
 };
 
 use crate::tui::app::App;
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    let footer_str = " [Enter] open thread  [?]help  [Esc] back";
+    let footer_h = super::footer_height(footer_str, area.width);
+
     let chunks = Layout::default()
-        .constraints([Constraint::Min(1), Constraint::Length(3)])
+        .constraints([Constraint::Min(1), Constraint::Length(footer_h)])
         .split(area);
 
     let header_block = Block::default()
@@ -63,9 +66,8 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         f.render_widget(table, inner);
     }
 
-    let footer = Paragraph::new(Line::from(vec![Span::raw(
-        " [Enter] open thread  [?]help  [Esc] back",
-    )]))
-    .block(Block::default().borders(Borders::ALL));
+    let footer = Paragraph::new(Line::from(vec![Span::raw(footer_str)]))
+        .block(Block::default().borders(Borders::ALL))
+        .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[1]);
 }

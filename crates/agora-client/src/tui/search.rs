@@ -2,18 +2,25 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Row, Table},
+    widgets::{Block, Borders, Paragraph, Row, Table, Wrap},
     Frame,
 };
 
 use crate::tui::app::App;
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    let footer_text = if app.search_input_mode {
+        " [Enter] search  [Esc] cancel  (tip: by:username to filter by author)"
+    } else {
+        " [/] new search  [Enter] open thread  [?]help  [Esc] back"
+    };
+    let footer_h = super::footer_height(footer_text, area.width);
+
     let chunks = Layout::default()
         .constraints([
             Constraint::Length(3),
             Constraint::Min(1),
-            Constraint::Length(3),
+            Constraint::Length(footer_h),
         ])
         .split(area);
 
@@ -88,14 +95,8 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         f.render_widget(table, inner);
     }
 
-    // Footer
-    let footer_text = if app.search_input_mode {
-        " [Enter] search  [Esc] cancel  (tip: by:username to filter by author)"
-    } else {
-        " [/] new search  [Enter] open thread  [?]help  [Esc] back"
-    };
-
     let footer = Paragraph::new(Line::from(vec![Span::raw(footer_text)]))
-        .block(Block::default().borders(Borders::ALL));
+        .block(Block::default().borders(Borders::ALL))
+        .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[2]);
 }

@@ -2,15 +2,23 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Row, Table},
+    widgets::{Block, Borders, Paragraph, Row, Table, Wrap},
     Frame,
 };
 
 use crate::tui::app::App;
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    let online = app.members.iter().filter(|u| u.is_online).count();
+    let footer_text = format!(
+        " {} members, {} online  [d]m selected  [?]help  [Esc] back",
+        app.members.len(),
+        online
+    );
+    let footer_h = super::footer_height(&footer_text, area.width);
+
     let chunks = Layout::default()
-        .constraints([Constraint::Min(1), Constraint::Length(3)])
+        .constraints([Constraint::Min(1), Constraint::Length(footer_h)])
         .split(area);
 
     let header_block = Block::default()
@@ -69,12 +77,8 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let table = Table::new(rows, widths).header(header);
     f.render_widget(table, inner);
 
-    let online = app.members.iter().filter(|u| u.is_online).count();
-    let footer = Paragraph::new(Line::from(vec![Span::raw(format!(
-        " {} members, {} online  [d]m selected  [?]help  [Esc] back",
-        app.members.len(),
-        online
-    ))]))
-    .block(Block::default().borders(Borders::ALL));
+    let footer = Paragraph::new(Line::from(vec![Span::raw(footer_text)]))
+        .block(Block::default().borders(Borders::ALL))
+        .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[1]);
 }

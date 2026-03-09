@@ -41,8 +41,50 @@ fn image_display_height(img: &image::DynamicImage, available_width: u16) -> u16 
 }
 
 pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
+    // Compute footer text first to determine its height
+    let post_info = if !app.posts.is_empty() {
+        format!(
+            "  posts 1-{} of {}  page {}/{}",
+            app.posts.len(),
+            app.posts.len(),
+            app.current_page,
+            app.total_pages
+        )
+    } else {
+        String::new()
+    };
+    let page_nav = if app.total_pages > 1 {
+        format!("  []] next  [[] prev{}", post_info)
+    } else {
+        post_info
+    };
+    let w = area.width as usize;
+    let footer_text = if app.post_cursor.is_some() {
+        if w >= 70 {
+            format!(
+                " POST MODE: [j/k] select  [R]eply-to  [+] react  [Esc] exit{}",
+                page_nav
+            )
+        } else {
+            format!(" POST: [j/k]  [R]eply  [+]react  [Esc]{}", page_nav)
+        }
+    } else if w >= 90 {
+        format!(
+            " [n]ew reply  [e]dit  [b]ookmark  [Tab] post mode  [j/k] scroll  [r]efresh  [?]help  [Esc]{}",
+            page_nav
+        )
+    } else if w >= 70 {
+        format!(
+            " [n]ew  [e]dit  [b]ookmark  [Tab] posts  [?]help  [Esc]{}",
+            page_nav
+        )
+    } else {
+        format!(" [n]ew  [Tab] posts  [?]help  [Esc]{}", page_nav)
+    };
+    let footer_h = super::footer_height(&footer_text, area.width);
+
     let chunks = Layout::default()
-        .constraints([Constraint::Min(1), Constraint::Length(3)])
+        .constraints([Constraint::Min(1), Constraint::Length(footer_h)])
         .split(area);
 
     let thread_title = app
@@ -328,50 +370,9 @@ pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     // Footer
-    let post_info = if !app.posts.is_empty() {
-        format!(
-            "  posts 1-{} of {}  page {}/{}",
-            app.posts.len(),
-            app.posts.len(),
-            app.current_page,
-            app.total_pages
-        )
-    } else {
-        String::new()
-    };
-
-    let page_nav = if app.total_pages > 1 {
-        format!("  []] next  [[] prev{}", post_info)
-    } else {
-        post_info
-    };
-
-    let w = area.width as usize;
-    let footer_text = if app.post_cursor.is_some() {
-        if w >= 70 {
-            format!(
-                " POST MODE: [j/k] select  [R]eply-to  [+] react  [Esc] exit{}",
-                page_nav
-            )
-        } else {
-            format!(" POST: [j/k]  [R]eply  [+]react  [Esc]{}", page_nav)
-        }
-    } else if w >= 90 {
-        format!(
-            " [n]ew reply  [e]dit  [b]ookmark  [Tab] post mode  [j/k] scroll  [r]efresh  [?]help  [Esc]{}",
-            page_nav
-        )
-    } else if w >= 70 {
-        format!(
-            " [n]ew  [e]dit  [b]ookmark  [Tab] posts  [?]help  [Esc]{}",
-            page_nav
-        )
-    } else {
-        format!(" [n]ew  [Tab] posts  [?]help  [Esc]{}", page_nav)
-    };
-
     let footer = Paragraph::new(Line::from(vec![Span::raw(footer_text)]))
-        .block(Block::default().borders(Borders::ALL));
+        .block(Block::default().borders(Borders::ALL))
+        .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[1]);
 
     // Reaction picker popup

@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Row, Table},
+    widgets::{Block, Borders, Paragraph, Row, Table, Wrap},
     Frame,
 };
 
@@ -10,8 +10,19 @@ use crate::cache;
 use crate::tui::app::App;
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    // Footer — responsive based on terminal width
+    let w = area.width as usize;
+    let footer_text = if w >= 105 {
+        " [Enter] open  [r]efresh  [S]erver  [b]ookmarks  [@]mentions  [i]nvites  [w]ho  [m]sg  [/]search  [?]help  [q]uit".to_string()
+    } else if w >= 80 {
+        " [Enter] open  [r]efresh  [S]erver  [b]ookmarks  [@]mentions  [/]search  [?]help  [q]uit".to_string()
+    } else {
+        " [Enter] open  [r]efresh  [?]help  [q]uit".to_string()
+    };
+    let footer_h = super::footer_height(&footer_text, area.width);
+
     let chunks = Layout::default()
-        .constraints([Constraint::Min(1), Constraint::Length(3)])
+        .constraints([Constraint::Min(1), Constraint::Length(footer_h)])
         .split(area);
 
     // Header
@@ -69,17 +80,9 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
     f.render_widget(table, inner);
 
-    // Footer — responsive based on terminal width
-    let w = area.width as usize;
-    let footer_text = if w >= 105 {
-        " [Enter] open  [r]efresh  [S]erver  [b]ookmarks  [@]mentions  [i]nvites  [w]ho  [m]sg  [/]search  [?]help  [q]uit".to_string()
-    } else if w >= 80 {
-        " [Enter] open  [r]efresh  [S]erver  [b]ookmarks  [@]mentions  [/]search  [?]help  [q]uit".to_string()
-    } else {
-        " [Enter] open  [r]efresh  [?]help  [q]uit".to_string()
-    };
     let footer = Paragraph::new(Line::from(vec![Span::raw(footer_text)]))
-        .block(Block::default().borders(Borders::ALL));
+        .block(Block::default().borders(Borders::ALL))
+        .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[1]);
 }
 

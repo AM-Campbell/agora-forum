@@ -6,11 +6,27 @@ set -e
 REPO="am-campbell/agora-forum"
 INSTALL_DIR="$HOME/.local/bin"
 
-echo ""
-echo "  ╔═══════════════════════════════════╗"
-echo "  ║         AGORA — Installer         ║"
-echo "  ╚═══════════════════════════════════╝"
-echo ""
+# Detect if this is an upgrade
+IS_UPGRADE=0
+if [ -f "$INSTALL_DIR/agora" ]; then
+    IS_UPGRADE=1
+fi
+
+if [ $IS_UPGRADE -eq 1 ]; then
+    echo ""
+    echo "  ╔═══════════════════════════════════╗"
+    echo "  ║       AGORA — Upgrading...        ║"
+    echo "  ╚═══════════════════════════════════╝"
+    echo ""
+    echo "  Existing installation detected. Your profile and config are safe."
+    echo ""
+else
+    echo ""
+    echo "  ╔═══════════════════════════════════╗"
+    echo "  ║         AGORA — Installer         ║"
+    echo "  ╚═══════════════════════════════════╝"
+    echo ""
+fi
 
 # ── Step 1: Detect OS and architecture ───────────────────────────
 
@@ -150,16 +166,18 @@ DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${BINARY_NAME}
 
 mkdir -p "$INSTALL_DIR"
 
-# Remove old binary if present (data in ~/.agora/ is preserved)
-if [ -f "$INSTALL_DIR/agora" ]; then
-    echo "        Replacing existing installation"
-    rm -f "$INSTALL_DIR/agora"
-fi
-
 if command -v curl >/dev/null 2>&1; then
-    curl -fSL "$DOWNLOAD_URL" -o "$INSTALL_DIR/agora" 2>/dev/null
+    if ! curl -fSL "$DOWNLOAD_URL" -o "$INSTALL_DIR/agora" 2>&1; then
+        echo "  Error: Failed to download Agora binary."
+        echo "  URL: $DOWNLOAD_URL"
+        exit 1
+    fi
 elif command -v wget >/dev/null 2>&1; then
-    wget -q "$DOWNLOAD_URL" -O "$INSTALL_DIR/agora"
+    if ! wget -q "$DOWNLOAD_URL" -O "$INSTALL_DIR/agora"; then
+        echo "  Error: Failed to download Agora binary."
+        echo "  URL: $DOWNLOAD_URL"
+        exit 1
+    fi
 else
     echo "  Error: curl or wget is required to download the binary."
     exit 1
@@ -206,28 +224,35 @@ esac
 
 # ── Done ─────────────────────────────────────────────────────────
 
-echo ""
-echo "  ╔═══════════════════════════════════╗"
-echo "  ║       Installation complete!      ║"
-echo "  ╚═══════════════════════════════════╝"
-echo ""
+if [ $IS_UPGRADE -eq 1 ]; then
+    echo ""
+    echo "  ╔═══════════════════════════════════╗"
+    echo "  ║        Upgrade complete!          ║"
+    echo "  ╚═══════════════════════════════════╝"
+    echo ""
+    echo "  Your profile and settings are unchanged."
+    echo "  Run 'agora' to start."
+    echo ""
+else
+    echo ""
+    echo "  ╔═══════════════════════════════════╗"
+    echo "  ║       Installation complete!      ║"
+    echo "  ╚═══════════════════════════════════╝"
+    echo ""
 
-if [ $PATH_UPDATED -eq 1 ]; then
-    echo "  Note: After this setup finishes, restart your terminal"
-    echo "  (or run: export PATH=\"\$HOME/.local/bin:\$PATH\")"
-    echo "  so that 'agora' is available everywhere."
+    if [ $PATH_UPDATED -eq 1 ]; then
+        echo "  Note: After this setup finishes, restart your terminal"
+        echo "  (or run: export PATH=\"\$HOME/.local/bin:\$PATH\")"
+        echo "  so that 'agora' is available everywhere."
+        echo ""
+    fi
+
+    echo "  To join a forum, run:"
+    echo ""
+    echo "      agora setup"
+    echo ""
+    echo "  You'll need two things from the person who invited you:"
+    echo "    1. A server address (looks like http://xxxx.onion)"
+    echo "    2. An invite code (a short string of letters and numbers)"
     echo ""
 fi
-
-echo "  To join a forum, run:"
-echo ""
-echo "      agora setup"
-echo ""
-echo "  You'll need two things from the person who invited you:"
-echo "    1. A server address (looks like http://xxxx.onion)"
-echo "    2. An invite code (a short string of letters and numbers)"
-echo ""
-echo "  Restoring an existing profile? Run:"
-echo ""
-echo "      agora profile import <your-backup-file>"
-echo ""

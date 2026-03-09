@@ -154,7 +154,13 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(server_addr: String, server_name: String, username: String, cache: Cache) -> Self {
+    pub fn new(
+        server_addr: String,
+        server_name: String,
+        username: String,
+        cache: Cache,
+        image_picker: Option<ratatui_image::picker::Picker>,
+    ) -> Self {
         Self {
             view_stack: vec![View::Boards],
             server_addr,
@@ -189,8 +195,7 @@ impl App {
             reply_context: 3,
             servers: Vec::new(),
             image_cache: HashMap::new(),
-            image_picker: ratatui_image::picker::Picker::from_query_stdio()
-                .ok(),
+            image_picker,
         }
     }
 
@@ -342,6 +347,11 @@ impl App {
 }
 
 pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, username: String, cache: Cache, reply_context: usize) -> Result<TuiResult, String> {
+    // Query terminal for image protocol support BEFORE entering raw mode / alternate screen.
+    // The query writes escape sequences to stdout and reads responses from stdin,
+    // which doesn't work once we've switched to the alternate screen.
+    let image_picker = ratatui_image::picker::Picker::from_query_stdio().ok();
+
     enable_raw_mode().map_err(|e| format!("Failed to enable raw mode: {}", e))?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)
@@ -350,7 +360,7 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
     let mut terminal =
         Terminal::new(backend).map_err(|e| format!("Failed to create terminal: {}", e))?;
 
-    let mut app = App::new(server_addr, server_name, username, cache);
+    let mut app = App::new(server_addr, server_name, username, cache, image_picker);
     app.reply_context = reply_context;
 
     // Load cached boards first
