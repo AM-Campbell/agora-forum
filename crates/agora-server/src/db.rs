@@ -3,7 +3,7 @@ use rusqlite::{params, Connection};
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
-pub const SERVER_VERSION: &str = "0.1.0";
+pub const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const MAX_ATTACHMENT_SIZE: usize = 5 * 1024 * 1024; // 5 MB
 // Reaction validation: server accepts any emoji string up to MAX_REACTION_LEN bytes
 
