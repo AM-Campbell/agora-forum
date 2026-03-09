@@ -24,6 +24,17 @@ agora setup
 
 Enter the server address, invite code, and pick a username. Then run `agora` to open the forum.
 
+## Running a Server
+
+To host your own forum on a Linux machine (no Rust toolchain needed):
+
+```
+curl -sSL https://raw.githubusercontent.com/AM-Campbell/agora-forum/refs/heads/master/install-server.sh -o install-server.sh
+sudo sh install-server.sh
+```
+
+This downloads the server binary, installs Tor, configures a hidden service, and starts everything. See **[SERVER-GUIDE.md](SERVER-GUIDE.md)** for details.
+
 ## Documentation
 
 - **[USER-GUIDE.md](USER-GUIDE.md)** — How to use Agora: browsing, posting, DMs, search, attachments, and all features

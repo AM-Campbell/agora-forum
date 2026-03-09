@@ -4,15 +4,20 @@ How to set up and run your own Agora forum server.
 
 ## Quick Setup (Recommended)
 
-The fastest way to deploy on Linux:
+The fastest way to deploy on Linux — no clone or Rust toolchain needed:
 
 ```bash
-git clone https://github.com/AM-Campbell/agora-forum && cd agora-forum
-cargo build --release
-sudo ./install-server.sh
+curl -sSL https://raw.githubusercontent.com/AM-Campbell/agora-forum/refs/heads/master/install-server.sh -o install-server.sh
+sudo sh install-server.sh
 ```
 
-The install script handles everything: creates a dedicated user, installs Tor, configures the hidden service, sets up systemd, and starts the server. It will print your `.onion` address and bootstrap invite code at the end.
+The install script downloads the pre-built server binary from GitHub, creates a dedicated user, installs Tor, configures the hidden service, sets up systemd, and starts the server. It will print your `.onion` address and bootstrap invite code at the end.
+
+To upgrade an existing server:
+
+```bash
+sudo sh install-server.sh --upgrade
+```
 
 ## Manual Setup
 
@@ -224,8 +229,8 @@ Copy both `/tmp/agora-backup.db` and the `/tmp/agora-tor-keys/` folder to the ne
 **On the new machine:**
 
 ```bash
-# Build or download the server binary, then run the install script:
-sudo ./install-server.sh
+curl -sSL https://raw.githubusercontent.com/AM-Campbell/agora-forum/refs/heads/master/install-server.sh -o install-server.sh
+sudo sh install-server.sh
 ```
 
 The install script will prompt you for:
@@ -251,7 +256,8 @@ Copy `agora-backup.db` to the new machine.
 **On the new machine:**
 
 ```bash
-sudo ./install-server.sh
+curl -sSL https://raw.githubusercontent.com/AM-Campbell/agora-forum/refs/heads/master/install-server.sh -o install-server.sh
+sudo sh install-server.sh
 ```
 
 Provide the database path when prompted, but leave the Tor hidden service directory blank. Tor will generate a new `.onion` address.
