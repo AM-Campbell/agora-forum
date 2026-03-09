@@ -58,7 +58,7 @@ install_binary_from_github() {
     DOWNLOAD_URL="https://github.com/AM-Campbell/agora-forum/releases/latest/download/${BINARY_NAME}"
 
     if command -v curl >/dev/null 2>&1; then
-        if ! curl -fSL "$DOWNLOAD_URL" -o "$AGORA_BIN" 2>&1; then
+        if ! curl -fSL -H "Cache-Control: no-cache" "$DOWNLOAD_URL" -o "$AGORA_BIN" 2>&1; then
             echo "  Error: Failed to download server binary from GitHub."
             echo "  URL: $DOWNLOAD_URL"
             echo ""
@@ -79,7 +79,9 @@ install_binary_from_github() {
     fi
 
     chmod +x "$AGORA_BIN"
-    echo "        Downloaded from GitHub"
+    # Show the version that was actually downloaded
+    DOWNLOADED_VERSION="$("$AGORA_BIN" --version 2>/dev/null || echo "unknown")"
+    echo "        Downloaded $DOWNLOADED_VERSION"
 }
 
 # ── Upgrade mode ─────────────────────────────────────────────
