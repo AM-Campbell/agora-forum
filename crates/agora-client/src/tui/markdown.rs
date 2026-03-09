@@ -28,13 +28,20 @@ pub fn render_body(body: &str, indent: &str, my_username: Option<&str>) -> Vec<L
             continue;
         }
 
-        // Blockquotes
+        // Blockquotes — parse inline markdown within the quote
         if line.starts_with('>') {
             let quote_text = line.strip_prefix("> ").unwrap_or(line.strip_prefix('>').unwrap_or(line));
-            lines.push(Line::from(Span::styled(
-                format!("{}│ {}", indent, quote_text),
-                Style::default().add_modifier(Modifier::DIM),
-            )));
+            let inner_spans = parse_inline(quote_text, my_username);
+            let mut prefixed = vec![
+                Span::styled(format!("{}│ ", indent), Style::default().add_modifier(Modifier::DIM)),
+            ];
+            for span in inner_spans {
+                // Merge DIM into each span's existing style
+                let mut style = span.style;
+                style = style.add_modifier(Modifier::DIM);
+                prefixed.push(Span::styled(span.content.into_owned(), style));
+            }
+            lines.push(Line::from(prefixed));
             continue;
         }
 

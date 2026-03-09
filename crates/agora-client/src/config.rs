@@ -105,6 +105,9 @@ impl ServerConfig {
 // ── Path helpers ────────────────────────────────────────────────
 
 pub fn agora_dir() -> PathBuf {
+    if let Ok(home) = std::env::var("AGORA_HOME") {
+        return PathBuf::from(home);
+    }
     dirs::home_dir()
         .expect("Could not determine home directory")
         .join(".agora")
@@ -199,4 +202,95 @@ pub fn set_last_server(server_addr: &str) -> Result<(), String> {
     let mut global = GlobalConfig::load_or_default();
     global.last_server = Some(server_addr.to_string());
     global.save()
+}
+
+// ── Emoji config (~/.agora/emojis.toml) ─────────────────────────
+
+pub fn emojis_path() -> PathBuf {
+    agora_dir().join("emojis.toml")
+}
+
+/// An emoji entry: label (for display) → emoji character (sent to server).
+#[derive(Debug, Clone)]
+pub struct EmojiEntry {
+    pub label: String,
+    pub emoji: String,
+}
+
+/// Default emoji set, written to emojis.toml on first run.
+const DEFAULT_EMOJIS_TOML: &str = r#"# Agora emoji reactions
+# Format: label = "emoji"
+# The label appears in the picker; the emoji is sent to the server.
+# Add, remove, or reorder as you like!
+
+[reactions]
+thumbsup = "👍"
+thumbsdown = "👎"
+heart = "❤️"
+laugh = "😂"
+thinking = "🤔"
+check = "✅"
+x = "❌"
+skull = "💀"
+fire = "🔥"
+eyes = "👀"
+clap = "👏"
+mind-blown = "🤯"
+cry = "😢"
+rage = "😡"
+party = "🎉"
+wizard = "🧙"
+scientist = "🧑‍🔬"
+unicorn = "🦄"
+angry-devil = "👿"
+smiling-devil = "😈"
+ogre = "👹"
+robot = "🤖"
+crown = "👑"
+wave = "👋"
+salute = "🫡"
+pray = "🙏"
+warning = "⚠️"
+lightbulb = "💡"
+rocket = "🚀"
+"#;
+
+/// Load emoji entries from ~/.agora/emojis.toml.
+/// Creates the file with defaults if it doesn't exist.
+pub fn load_emojis() -> Vec<EmojiEntry> {
+    let path = emojis_path();
+
+    // Create default file if missing
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        std::fs::write(&path, DEFAULT_EMOJIS_TOML).ok();
+    }
+
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return default_emojis(),
+    };
+
+    parse_emojis_toml(&content).unwrap_or_else(|| default_emojis())
+}
+
+fn parse_emojis_toml(content: &str) -> Option<Vec<EmojiEntry>> {
+    let table: toml::Table = content.parse().ok()?;
+    let reactions = table.get("reactions")?.as_table()?;
+    let mut entries = Vec::new();
+    for (label, value) in reactions {
+        if let Some(emoji) = value.as_str() {
+            entries.push(EmojiEntry {
+                label: label.clone(),
+                emoji: emoji.to_string(),
+            });
+        }
+    }
+    if entries.is_empty() { None } else { Some(entries) }
+}
+
+fn default_emojis() -> Vec<EmojiEntry> {
+    parse_emojis_toml(DEFAULT_EMOJIS_TOML).unwrap_or_default()
 }

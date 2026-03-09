@@ -63,7 +63,7 @@ pub fn display_image_kitty(data: &[u8], filename: &str) -> io::Result<()> {
 pub fn is_displayable_image(content_type: &str) -> bool {
     matches!(
         content_type,
-        "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+        "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/avif"
     )
 }
 
@@ -77,6 +77,7 @@ mod tests {
         assert!(is_displayable_image("image/jpeg"));
         assert!(is_displayable_image("image/gif"));
         assert!(is_displayable_image("image/webp"));
+        assert!(is_displayable_image("image/avif"));
     }
 
     #[test]

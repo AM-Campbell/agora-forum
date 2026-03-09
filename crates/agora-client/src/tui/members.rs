@@ -78,7 +78,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(table, inner);
 
     let footer = Paragraph::new(Line::from(vec![Span::raw(footer_text)]))
-        .block(Block::default().borders(Borders::ALL))
+        .block(super::footer_block())
         .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[1]);
 }

@@ -17,18 +17,10 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         app.current_page, app.total_pages
     );
     let page_nav = if app.total_pages > 1 { "  []] next  [[] prev" } else { "" };
-    let w = area.width as usize;
-    let footer_text = if w >= 80 {
-        format!(
-            " [Enter] open  [n]ew thread  [r]efresh  [?]help  [Esc]{}{}",
-            page_nav, page_info
-        )
-    } else {
-        format!(
-            " [Enter] open  [n]ew  [?]help  [Esc]{}",
-            page_nav
-        )
-    };
+    let footer_text = format!(
+        " [Enter] open  [n]ew thread  [r]efresh  [?]help  [Esc]{}{}",
+        page_nav, page_info
+    );
     let footer_h = super::footer_height(&footer_text, area.width);
 
     let chunks = Layout::default()
@@ -56,7 +48,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         .iter()
         .enumerate()
         .map(|(i, t)| {
-            let unread = cache::is_thread_unread(&app.cache, t.id);
+            let unread = cache::is_thread_unread(&app.cache, t.id, t.latest_post_id);
             let mut prefix = String::new();
             if t.pinned {
                 prefix.push_str("📌");
@@ -111,7 +103,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(table, inner);
 
     let footer = Paragraph::new(Line::from(vec![Span::raw(footer_text)]))
-        .block(Block::default().borders(Borders::ALL))
+        .block(super::footer_block())
         .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[1]);
 }

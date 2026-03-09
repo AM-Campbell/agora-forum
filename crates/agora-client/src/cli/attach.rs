@@ -86,6 +86,7 @@ fn guess_content_type(filename: &str) -> String {
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",
+        "avif" => "image/avif",
         "webp" => "image/webp",
         "svg" => "image/svg+xml",
         "pdf" => "application/pdf",
@@ -116,6 +117,7 @@ mod tests {
         assert_eq!(guess_content_type("photo.jpeg"), "image/jpeg");
         assert_eq!(guess_content_type("anim.gif"), "image/gif");
         assert_eq!(guess_content_type("photo.webp"), "image/webp");
+        assert_eq!(guess_content_type("photo.avif"), "image/avif");
         assert_eq!(guess_content_type("icon.svg"), "image/svg+xml");
     }
 

@@ -62,7 +62,7 @@ pub fn render_inbox(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let footer = Paragraph::new(Line::from(vec![Span::raw(footer_str)]))
-        .block(Block::default().borders(Borders::ALL))
+        .block(super::footer_block())
         .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[1]);
 }
@@ -113,7 +113,7 @@ pub fn render_thread(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(content, inner);
 
     let footer = Paragraph::new(Line::from(vec![Span::raw(footer_str)]))
-        .block(Block::default().borders(Borders::ALL))
+        .block(super::footer_block())
         .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[1]);
 }

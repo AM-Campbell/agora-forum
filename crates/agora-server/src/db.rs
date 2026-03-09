@@ -5,7 +5,7 @@ use tracing::info;
 
 pub const SERVER_VERSION: &str = "0.1.0";
 pub const MAX_ATTACHMENT_SIZE: usize = 5 * 1024 * 1024; // 5 MB
-pub const ALLOWED_REACTIONS: &[&str] = &["thumbsup", "check", "heart", "think", "laugh"];
+// Reaction validation: server accepts any emoji string up to MAX_REACTION_LEN bytes
 
 pub type Db = Arc<Mutex<Connection>>;
 

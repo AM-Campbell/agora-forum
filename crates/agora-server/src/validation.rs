@@ -61,6 +61,34 @@ pub fn escape_fts_query(s: &str) -> String {
         .join(" ")
 }
 
+/// Check whether `body` contains a real @mention of `username`.
+/// Matches the client-side parser: `@` must be preceded by start-of-string or
+/// a non-alphanumeric character, and the full token after `@` (alphanumeric + `_`)
+/// must equal `username` exactly.
+pub fn contains_mention(body: &str, username: &str) -> bool {
+    let chars: Vec<char> = body.chars().collect();
+    let target: Vec<char> = username.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+    while i < len {
+        if chars[i] == '@' && (i == 0 || !chars[i.saturating_sub(1)].is_alphanumeric()) {
+            let start = i + 1;
+            let mut end = start;
+            while end < len && (chars[end].is_alphanumeric() || chars[end] == '_') {
+                end += 1;
+            }
+            let token: Vec<char> = chars[start..end].to_vec();
+            if token == target {
+                return true;
+            }
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
 /// Escape special characters for a SQL LIKE pattern.
 pub fn escape_sql_like(s: &str) -> String {
     s.replace('\\', "\\\\")
@@ -77,6 +105,14 @@ pub fn verify_content_type_magic(data: &[u8], content_type: &str) -> bool {
         "image/jpeg" => data.starts_with(&[0xFF, 0xD8, 0xFF]),
         "image/gif" => data.starts_with(b"GIF8"),
         "image/webp" => data.len() >= 12 && &data[8..12] == b"WEBP",
+        "image/avif" => {
+            // AVIF uses ISOBMFF container: bytes 4..8 must be "ftyp"
+            if data.len() < 12 { return false; }
+            if &data[4..8] != b"ftyp" { return false; }
+            // Check for avif/avis brand in the ftyp box
+            let ftyp_end = std::cmp::min(data.len(), 32);
+            data[8..ftyp_end].windows(4).any(|w| w == b"avif" || w == b"avis")
+        }
         _ => true,
     }
 }
@@ -262,6 +298,13 @@ mod tests {
     }
 
     #[test]
+    fn fts_query_only_quotes() {
+        // All quotes stripped → empty quoted token
+        assert_eq!(escape_fts_query("\""), "\"\"");
+        assert_eq!(escape_fts_query("\"\"\""), "\"\"");
+    }
+
+    #[test]
     fn fts_query_single_word() {
         assert_eq!(escape_fts_query("rust"), "\"rust\"");
     }
@@ -293,6 +336,51 @@ mod tests {
         assert_eq!(escape_sql_like("a%b_c\\d"), "a\\%b\\_c\\\\d");
     }
 
+    // --- contains_mention ---
+
+    #[test]
+    fn mention_basic() {
+        assert!(contains_mention("hey @alice check this", "alice"));
+    }
+
+    #[test]
+    fn mention_at_start() {
+        assert!(contains_mention("@alice hello", "alice"));
+    }
+
+    #[test]
+    fn mention_at_end() {
+        assert!(contains_mention("hello @alice", "alice"));
+    }
+
+    #[test]
+    fn mention_no_false_prefix() {
+        // @alice_bob should NOT match user "alice"
+        assert!(!contains_mention("hey @alice_bob", "alice"));
+    }
+
+    #[test]
+    fn mention_no_false_email() {
+        // email@alice should NOT match — alphanumeric before @
+        assert!(!contains_mention("email@alice.com", "alice"));
+    }
+
+    #[test]
+    fn mention_after_punctuation() {
+        assert!(contains_mention("hello,@alice!", "alice"));
+        assert!(contains_mention("(@alice)", "alice"));
+    }
+
+    #[test]
+    fn mention_not_present() {
+        assert!(!contains_mention("no mention here", "alice"));
+    }
+
+    #[test]
+    fn mention_wrong_user() {
+        assert!(!contains_mention("hey @bob", "alice"));
+    }
+
     // --- verify_content_type_magic ---
 
     #[test]
@@ -318,6 +406,39 @@ mod tests {
         let mut data = vec![0u8; 12];
         data[8..12].copy_from_slice(b"WEBP");
         assert!(verify_content_type_magic(&data, "image/webp"));
+    }
+
+    #[test]
+    fn magic_valid_avif() {
+        // Minimal AVIF ftyp box: size(4) + "ftyp" + "avif"
+        let mut data = vec![0u8; 16];
+        data[0..4].copy_from_slice(&[0x00, 0x00, 0x00, 0x10]); // box size
+        data[4..8].copy_from_slice(b"ftyp");
+        data[8..12].copy_from_slice(b"avif");
+        assert!(verify_content_type_magic(&data, "image/avif"));
+    }
+
+    #[test]
+    fn magic_valid_avif_avis_brand() {
+        let mut data = vec![0u8; 16];
+        data[0..4].copy_from_slice(&[0x00, 0x00, 0x00, 0x10]);
+        data[4..8].copy_from_slice(b"ftyp");
+        data[8..12].copy_from_slice(b"avis");
+        assert!(verify_content_type_magic(&data, "image/avif"));
+    }
+
+    #[test]
+    fn magic_invalid_avif() {
+        // Wrong ftyp brand
+        let mut data = vec![0u8; 16];
+        data[4..8].copy_from_slice(b"ftyp");
+        data[8..12].copy_from_slice(b"mp41");
+        assert!(!verify_content_type_magic(&data, "image/avif"));
+    }
+
+    #[test]
+    fn magic_avif_too_short() {
+        assert!(!verify_content_type_magic(&[0u8; 8], "image/avif"));
     }
 
     #[test]

@@ -72,6 +72,8 @@ pub struct ThreadSummary {
     pub pinned: bool,
     #[serde(default)]
     pub locked: bool,
+    #[serde(default)]
+    pub latest_post_id: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -363,6 +365,9 @@ pub struct UserPublicKeyResponse {
 }
 
 // --- Reactions ---
+
+/// Maximum byte length for a reaction emoji string.
+pub const MAX_REACTION_LEN: usize = 20;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReactionCount {

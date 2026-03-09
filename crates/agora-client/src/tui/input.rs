@@ -21,6 +21,7 @@ pub enum Action {
     // Mutations
     ToggleBookmark { thread_id: i64 },
     ReactToPost { thread_id: i64, post_id: i64, reaction: String },
+    DeletePost { thread_id: i64, post_id: i64 },
     GenerateInvite,
 
     // Pagination
@@ -86,6 +87,30 @@ pub fn parse_search_query(input: &str) -> (String, Option<String>) {
     }
 }
 
+/// Build the reaction picker item list: recent emoji (with digit labels) followed by all emoji.
+/// Returns Vec of (emoji_char, display_label).
+pub fn reaction_picker_items(recent: &[String], emojis: &[crate::config::EmojiEntry]) -> Vec<(String, String)> {
+    let mut items = Vec::new();
+    // Recent reactions with digit key labels (0-9)
+    for (i, emoji) in recent.iter().take(10).enumerate() {
+        // Find label from config, fall back to just the emoji
+        let label = emojis.iter()
+            .find(|e| e.emoji == *emoji)
+            .map(|e| e.label.as_str())
+            .unwrap_or("");
+        if label.is_empty() {
+            items.push((emoji.clone(), format!("[{}] {}", i, emoji)));
+        } else {
+            items.push((emoji.clone(), format!("[{}] {} {}", i, emoji, label)));
+        }
+    }
+    // All emoji from config
+    for entry in emojis {
+        items.push((entry.emoji.clone(), format!("    {} {}", entry.emoji, entry.label)));
+    }
+    items
+}
+
 /// Pure key handler: mutates App state and returns an Action describing
 /// what side effect (if any) the main loop should execute.
 pub fn handle_key(app: &mut App, key: KeyEvent) -> Action {
@@ -131,26 +156,44 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Action {
 
     // Reaction picker intercepts
     if app.show_reaction_picker {
+        let picker_items = reaction_picker_items(&app.recent_reactions, &app.emojis);
         let reaction = match key.code {
-            KeyCode::Char('1') => Some("thumbsup"),
-            KeyCode::Char('2') => Some("check"),
-            KeyCode::Char('3') => Some("heart"),
-            KeyCode::Char('4') => Some("think"),
-            KeyCode::Char('5') => Some("laugh"),
             KeyCode::Esc => {
                 app.show_reaction_picker = false;
+                app.reaction_picker_scroll = 0;
+                return Action::None;
+            }
+            // Digit keys 0-9 select from recent reactions
+            KeyCode::Char(c @ '0'..='9') => {
+                let idx = c.to_digit(10).unwrap() as usize;
+                app.recent_reactions.get(idx).cloned()
+            }
+            // Enter selects the highlighted item
+            KeyCode::Enter => {
+                picker_items.get(app.reaction_picker_scroll).map(|(emoji, _)| emoji.clone())
+            }
+            // j/k or arrows to scroll
+            KeyCode::Char('j') | KeyCode::Down => {
+                if app.reaction_picker_scroll + 1 < picker_items.len() {
+                    app.reaction_picker_scroll += 1;
+                }
+                return Action::None;
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                app.reaction_picker_scroll = app.reaction_picker_scroll.saturating_sub(1);
                 return Action::None;
             }
             _ => None,
         };
         if let Some(reaction) = reaction {
             app.show_reaction_picker = false;
+            app.reaction_picker_scroll = 0;
             if let (Some(thread), Some(cursor)) = (&app.current_thread, app.post_cursor) {
                 if let Some(post) = app.posts.get(cursor) {
                     return Action::ReactToPost {
                         thread_id: thread.id,
                         post_id: post.id,
-                        reaction: reaction.to_string(),
+                        reaction,
                     };
                 }
             }
@@ -181,7 +224,53 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Action {
                 return Action::None;
             }
             KeyCode::Char('+') => {
+                app.recent_reactions = crate::cache::get_recent_reactions(&app.cache);
+                app.reaction_picker_scroll = 0;
                 app.show_reaction_picker = true;
+                return Action::None;
+            }
+            KeyCode::Char('d') => {
+                // Delete selected post (if it's yours or you're mod/admin)
+                if let Some(thread) = &app.current_thread.clone() {
+                    if let Some(cursor) = app.post_cursor {
+                        if let Some(post) = app.posts.get(cursor) {
+                            if post.is_deleted {
+                                app.status_message = Some("Post is already deleted.".to_string());
+                            } else if post.author != app.username {
+                                app.status_message = Some("You can only delete your own posts.".to_string());
+                            } else {
+                                return Action::DeletePost {
+                                    thread_id: thread.id,
+                                    post_id: post.id,
+                                };
+                            }
+                        }
+                    }
+                }
+                return Action::None;
+            }
+            KeyCode::Char('e') => {
+                // Edit selected post (if it's yours)
+                if let Some(thread) = &app.current_thread.clone() {
+                    if let Some(cursor) = app.post_cursor {
+                        if let Some(post) = app.posts.get(cursor) {
+                            if post.is_deleted {
+                                app.status_message = Some("Cannot edit a deleted post.".to_string());
+                            } else if post.author != app.username {
+                                app.status_message = Some("You can only edit your own posts.".to_string());
+                            } else {
+                                return Action::OpenEditor {
+                                    kind: EditorKind::EditPost {
+                                        thread_id: thread.id,
+                                        post_id: post.id,
+                                        old_body: post.body.clone(),
+                                        thread_title: thread.title.clone(),
+                                    },
+                                };
+                            }
+                        }
+                    }
+                }
                 return Action::None;
             }
             KeyCode::Char('R') => {
@@ -207,6 +296,10 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Action {
                     }
                 }
                 return Action::None;
+            }
+            KeyCode::Char('n') => {
+                // Exit post mode and fall through to normal 'n' handler (new reply)
+                app.post_cursor = None;
             }
             _ => return Action::None,
         }
@@ -300,36 +393,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Action {
                 Action::FetchBookmarks
             }
         }
-        KeyCode::Char('e') => {
-            if app.current_view() == &View::Thread {
-                if let Some(thread) = &app.current_thread.clone() {
-                    let my_posts: Vec<_> = app
-                        .posts
-                        .iter()
-                        .filter(|p| p.author == app.username && !p.is_deleted)
-                        .collect();
-                    if let Some(post) = my_posts.last() {
-                        Action::OpenEditor {
-                            kind: EditorKind::EditPost {
-                                thread_id: thread.id,
-                                post_id: post.id,
-                                old_body: post.body.clone(),
-                                thread_title: thread.title.clone(),
-                            },
-                        }
-                    } else {
-                        app.status_message = Some(
-                            "No editable posts (only your own posts can be edited).".to_string(),
-                        );
-                        Action::None
-                    }
-                } else {
-                    Action::None
-                }
-            } else {
-                Action::None
-            }
-        }
+        KeyCode::Char('e') => Action::None,
         KeyCode::Char('m') => Action::FetchInbox,
         KeyCode::Char('r') => {
             match app.current_view().clone() {
@@ -609,6 +673,7 @@ mod tests {
             post_count: 0,
             pinned: false,
             locked: false,
+            latest_post_id: 0,
         }
     }
 
@@ -840,19 +905,49 @@ mod tests {
 
     // ── Reaction picker (3) ─────────────────────────────────────
 
+    fn test_emojis() -> Vec<crate::config::EmojiEntry> {
+        vec![
+            crate::config::EmojiEntry { label: "thumbsup".into(), emoji: "\u{1F44D}".into() },
+            crate::config::EmojiEntry { label: "heart".into(), emoji: "\u{2764}\u{FE0F}".into() },
+            crate::config::EmojiEntry { label: "skull".into(), emoji: "\u{1F480}".into() },
+        ]
+    }
+
     #[test]
-    fn reaction_picker_selects_reaction() {
+    fn reaction_picker_selects_via_digit_key() {
         let mut app = test_app();
+        app.emojis = test_emojis();
+        app.push_view(View::Thread);
+        app.current_thread = Some(test_thread_detail(1, "Test", false));
+        app.posts = vec![test_post(10, "other", "hello")];
+        app.post_cursor = Some(0);
+        app.recent_reactions = vec!["\u{2764}\u{FE0F}".into(), "\u{1F480}".into()];
+        app.show_reaction_picker = true;
+
+        let action = handle_key(&mut app, key(KeyCode::Char('0')));
+        assert_eq!(
+            action,
+            Action::ReactToPost { thread_id: 1, post_id: 10, reaction: "\u{2764}\u{FE0F}".into() }
+        );
+        assert!(!app.show_reaction_picker);
+    }
+
+    #[test]
+    fn reaction_picker_selects_via_enter() {
+        let mut app = test_app();
+        app.emojis = test_emojis();
         app.push_view(View::Thread);
         app.current_thread = Some(test_thread_detail(1, "Test", false));
         app.posts = vec![test_post(10, "other", "hello")];
         app.post_cursor = Some(0);
         app.show_reaction_picker = true;
+        // No recents, so scroll=0 is the first emoji entry (thumbsup)
+        app.reaction_picker_scroll = 0;
 
-        let action = handle_key(&mut app, key(KeyCode::Char('1')));
+        let action = handle_key(&mut app, key(KeyCode::Enter));
         assert_eq!(
             action,
-            Action::ReactToPost { thread_id: 1, post_id: 10, reaction: "thumbsup".into() }
+            Action::ReactToPost { thread_id: 1, post_id: 10, reaction: "\u{1F44D}".into() }
         );
         assert!(!app.show_reaction_picker);
     }
@@ -1045,11 +1140,12 @@ mod tests {
     }
 
     #[test]
-    fn e_in_thread_returns_edit_post_editor() {
+    fn e_in_post_mode_returns_edit_post_editor() {
         let mut app = test_app();
         app.push_view(View::Thread);
         app.current_thread = Some(test_thread_detail(1, "Title", false));
         app.posts = vec![test_post(10, "testuser", "my post")];
+        app.post_cursor = Some(0);
         let action = handle_key(&mut app, key(KeyCode::Char('e')));
         assert_eq!(
             action,
@@ -1062,6 +1158,17 @@ mod tests {
                 }
             }
         );
+    }
+
+    #[test]
+    fn e_outside_post_mode_is_noop() {
+        let mut app = test_app();
+        app.push_view(View::Thread);
+        app.current_thread = Some(test_thread_detail(1, "Title", false));
+        app.posts = vec![test_post(10, "testuser", "my post")];
+        // No post_cursor — not in post mode
+        let action = handle_key(&mut app, key(KeyCode::Char('e')));
+        assert_eq!(action, Action::None);
     }
 
     // ── Pagination (4) ──────────────────────────────────────────
@@ -1187,15 +1294,38 @@ mod tests {
     }
 
     #[test]
-    fn e_with_no_own_posts_shows_status() {
+    fn e_in_post_mode_on_others_post_shows_status() {
         let mut app = test_app();
         app.push_view(View::Thread);
         app.current_thread = Some(test_thread_detail(1, "T", false));
-        // Only posts by other users
         app.posts = vec![test_post(1, "someone_else", "their post")];
+        app.post_cursor = Some(0);
         let action = handle_key(&mut app, key(KeyCode::Char('e')));
         assert_eq!(action, Action::None);
-        assert!(app.status_message.unwrap().contains("No editable posts"));
+        assert!(app.status_message.unwrap().contains("only edit your own"));
+    }
+
+    #[test]
+    fn d_in_post_mode_returns_delete_post() {
+        let mut app = test_app();
+        app.push_view(View::Thread);
+        app.current_thread = Some(test_thread_detail(1, "T", false));
+        app.posts = vec![test_post(10, "testuser", "my post")];
+        app.post_cursor = Some(0);
+        let action = handle_key(&mut app, key(KeyCode::Char('d')));
+        assert_eq!(action, Action::DeletePost { thread_id: 1, post_id: 10 });
+    }
+
+    #[test]
+    fn d_in_post_mode_on_others_post_shows_status() {
+        let mut app = test_app();
+        app.push_view(View::Thread);
+        app.current_thread = Some(test_thread_detail(1, "T", false));
+        app.posts = vec![test_post(1, "someone_else", "their post")];
+        app.post_cursor = Some(0);
+        let action = handle_key(&mut app, key(KeyCode::Char('d')));
+        assert_eq!(action, Action::None);
+        assert!(app.status_message.unwrap().contains("only delete your own"));
     }
 
     #[test]

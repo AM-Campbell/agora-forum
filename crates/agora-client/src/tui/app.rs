@@ -37,7 +37,9 @@ pub struct ImageReady {
 /// or the StatefulProtocol ready for rendering.
 pub enum CachedImage {
     Raw(image::DynamicImage),
-    Protocol(ratatui_image::protocol::StatefulProtocol),
+    Protocol {
+        proto: ratatui_image::protocol::StatefulProtocol,
+    },
 }
 
 pub enum TuiResult {
@@ -130,12 +132,17 @@ pub struct App {
 
     // Unread divider — snapshot of last-read post ID before entering thread
     pub last_read_post_id: Option<i64>,
+    // Auto-scroll to NEW divider on first render after entering thread
+    pub jump_to_unread: bool,
 
     // Post-selection mode (for reply-to, reactions)
     pub post_cursor: Option<usize>,
 
     // Reactions picker
     pub show_reaction_picker: bool,
+    pub reaction_picker_scroll: usize,
+    pub recent_reactions: Vec<String>,
+    pub emojis: Vec<config::EmojiEntry>,
 
     // Mentions
     pub mentions: Vec<MentionResult>,
@@ -189,8 +196,12 @@ impl App {
             show_help: false,
             status_message: None,
             last_read_post_id: None,
+            jump_to_unread: false,
             post_cursor: None,
             show_reaction_picker: false,
+            reaction_picker_scroll: 0,
+            recent_reactions: Vec::new(),
+            emojis: config::load_emojis(),
             mentions: Vec::new(),
             reply_context: 3,
             servers: Vec::new(),
@@ -399,7 +410,9 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
         // Drain any completed image downloads (non-blocking)
         while let Ok(ready) = img_rx.try_recv() {
             let cached = if let Some(picker) = &app.image_picker {
-                CachedImage::Protocol(picker.new_resize_protocol(ready.image))
+                CachedImage::Protocol {
+                    proto: picker.new_resize_protocol(ready.image),
+                }
             } else {
                 CachedImage::Raw(ready.image)
             };
@@ -605,11 +618,24 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
                     }
                 }
                 Action::ReactToPost { thread_id, post_id, reaction } => {
+                    cache::record_reaction(&app.cache, &reaction);
                     match api.react_post(thread_id, post_id, &reaction).await {
                         Ok(resp) => {
                             let verb = if resp.added { "added" } else { "removed" };
                             app.status_message =
-                                Some(format!("Reaction {} {}", resp.reaction, verb));
+                                Some(format!("{} {}", resp.reaction, verb));
+                            // Refresh thread
+                            if let Ok(r) = api.get_thread(thread_id, app.current_page).await {
+                                app.posts = r.posts;
+                            }
+                        }
+                        Err(e) => app.status_message = Some(format!("Error: {}", e)),
+                    }
+                }
+                Action::DeletePost { thread_id, post_id } => {
+                    match api.mod_post(thread_id, post_id, "delete").await {
+                        Ok(_) => {
+                            app.status_message = Some("Post deleted.".to_string());
                             // Refresh thread
                             if let Ok(r) = api.get_thread(thread_id, app.current_page).await {
                                 app.posts = r.posts;
@@ -876,6 +902,32 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
                     io::stdin().read_line(&mut buf).ok();
 
                     resume_tui!(terminal);
+
+                    // Auto-refresh current view after editor returns
+                    match app.current_view() {
+                        View::Thread => {
+                            if let Some(t) = &app.current_thread {
+                                if let Ok(r) = api.get_thread(t.id, app.current_page).await {
+                                    app.posts = r.posts;
+                                    app.total_pages = r.total_pages;
+                                }
+                            }
+                        }
+                        View::Threads => {
+                            if let Some(b) = &app.current_board {
+                                if let Ok(r) = api.get_threads(&b.slug, app.current_page).await {
+                                    app.threads = r.threads;
+                                    app.total_pages = r.total_pages;
+                                }
+                            }
+                        }
+                        View::Messages | View::MessageThread => {
+                            if let Ok(r) = api.get_inbox().await {
+                                app.dm_conversations = r.conversations;
+                            }
+                        }
+                        _ => {}
+                    }
                 }
                 Action::CopyToClipboard { text } => {
                     crate::tui::invites::copy_to_clipboard(&text);
@@ -918,6 +970,7 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
                 Action::EnterThread { thread_id } | Action::EnterSearchResult { thread_id } | Action::EnterBookmark { thread_id } | Action::EnterMention { thread_id } => {
                     app.last_read_post_id =
                         cache::get_last_read_post_id(&app.cache, thread_id);
+                    app.jump_to_unread = app.last_read_post_id.is_some();
                     app.post_cursor = None;
                     app.current_page = 1;
                     app.clear_image_cache();

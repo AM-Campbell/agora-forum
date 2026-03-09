@@ -66,9 +66,10 @@ pub fn open_for(server_addr: &str) -> Cache {
     )
     .expect("failed to create cache tables");
 
-    // Add pinned/locked columns (idempotent, for existing caches)
+    // Add columns (idempotent, for existing caches)
     conn.execute("ALTER TABLE threads ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0", []).ok();
     conn.execute("ALTER TABLE threads ADD COLUMN locked INTEGER NOT NULL DEFAULT 0", []).ok();
+    conn.execute("ALTER TABLE threads ADD COLUMN latest_post_id INTEGER NOT NULL DEFAULT 0", []).ok();
 
     Arc::new(Mutex::new(conn))
 }
@@ -110,9 +111,9 @@ pub fn cache_threads(cache: &Cache, board_id: i64, threads: &[agora_common::Thre
     let now = chrono::Utc::now().to_rfc3339();
     for t in threads {
         conn.execute(
-            "INSERT OR REPLACE INTO threads (id, board_id, author, title, created_at, last_post_at, post_count, pinned, locked, last_fetched)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![t.id, board_id, t.author, t.title, t.created_at, t.last_post_at, t.post_count, t.pinned as i64, t.locked as i64, now],
+            "INSERT OR REPLACE INTO threads (id, board_id, author, title, created_at, last_post_at, post_count, pinned, locked, latest_post_id, last_fetched)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![t.id, board_id, t.author, t.title, t.created_at, t.last_post_at, t.post_count, t.pinned as i64, t.locked as i64, t.latest_post_id, now],
         ).ok();
     }
 }
@@ -121,7 +122,7 @@ pub fn get_cached_threads(cache: &Cache, board_id: i64) -> Vec<agora_common::Thr
     let conn = cache.lock().expect("cache mutex poisoned");
     let mut stmt = conn
         .prepare(
-            "SELECT id, title, author, created_at, last_post_at, post_count, pinned, locked
+            "SELECT id, title, author, created_at, last_post_at, post_count, pinned, locked, latest_post_id
              FROM threads WHERE board_id = ?1 ORDER BY pinned DESC, last_post_at DESC",
         )
         .unwrap();
@@ -137,6 +138,7 @@ pub fn get_cached_threads(cache: &Cache, board_id: i64) -> Vec<agora_common::Thr
             post_count: row.get(5)?,
             pinned: pinned != 0,
             locked: locked != 0,
+            latest_post_id: row.get(8)?,
         })
     })
     .unwrap()
@@ -219,17 +221,13 @@ pub fn get_last_read_post_id(cache: &Cache, thread_id: i64) -> Option<i64> {
 
 pub fn get_unread_count(cache: &Cache, board_id: i64) -> i64 {
     let conn = cache.lock().expect("cache mutex poisoned");
-    // Count threads where the latest post_id (approximated by max post count) is unread
     conn.query_row(
         "SELECT COUNT(*) FROM threads t
          WHERE t.board_id = ?1
+         AND t.latest_post_id > 0
          AND (
              NOT EXISTS (SELECT 1 FROM read_state rs WHERE rs.thread_id = t.id)
-             OR EXISTS (
-                 SELECT 1 FROM posts p
-                 WHERE p.thread_id = t.id
-                 AND p.id > (SELECT rs.last_read_post_id FROM read_state rs WHERE rs.thread_id = t.id)
-             )
+             OR t.latest_post_id > (SELECT rs.last_read_post_id FROM read_state rs WHERE rs.thread_id = t.id)
          )",
         [board_id],
         |row| row.get(0),
@@ -237,29 +235,49 @@ pub fn get_unread_count(cache: &Cache, board_id: i64) -> i64 {
     .unwrap_or(0)
 }
 
-pub fn is_thread_unread(cache: &Cache, thread_id: i64) -> bool {
-    let conn = cache.lock().expect("cache mutex poisoned");
-    let last_read: Option<i64> = conn
-        .query_row(
-            "SELECT last_read_post_id FROM read_state WHERE thread_id = ?1",
-            [thread_id],
-            |row| row.get(0),
-        )
-        .ok();
-
+pub fn is_thread_unread(cache: &Cache, thread_id: i64, latest_post_id: i64) -> bool {
+    if latest_post_id == 0 {
+        return false; // no posts yet
+    }
+    let last_read = get_last_read_post_id(cache, thread_id);
     match last_read {
         None => true, // never opened
-        Some(last_read_id) => {
-            let max_post_id: i64 = conn
-                .query_row(
-                    "SELECT COALESCE(MAX(id), 0) FROM posts WHERE thread_id = ?1",
-                    [thread_id],
-                    |row| row.get(0),
-                )
-                .unwrap_or(0);
-            max_post_id > last_read_id
-        }
+        Some(last_read_id) => latest_post_id > last_read_id,
     }
+}
+
+pub fn get_recent_reactions(cache: &Cache) -> Vec<String> {
+    let conn = cache.lock().expect("cache mutex poisoned");
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS recent_reactions (
+            shortcode TEXT PRIMARY KEY,
+            used_at TEXT NOT NULL
+        )",
+        [],
+    ).ok();
+    let mut stmt = conn
+        .prepare("SELECT shortcode FROM recent_reactions ORDER BY used_at DESC LIMIT 10")
+        .unwrap();
+    stmt.query_map([], |row| row.get(0))
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+}
+
+pub fn record_reaction(cache: &Cache, shortcode: &str) {
+    let conn = cache.lock().expect("cache mutex poisoned");
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS recent_reactions (
+            shortcode TEXT PRIMARY KEY,
+            used_at TEXT NOT NULL
+        )",
+        [],
+    ).ok();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT OR REPLACE INTO recent_reactions (shortcode, used_at) VALUES (?1, ?2)",
+        params![shortcode, now],
+    ).ok();
 }
 
 pub fn clear_cache_for(server_addr: &str) -> Result<(), String> {

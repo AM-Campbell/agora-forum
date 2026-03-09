@@ -304,7 +304,8 @@ pub async fn list_threads(
         .prepare(
             "SELECT t.id, t.title, u.username, t.created_at, t.last_post_at,
                     (SELECT COUNT(*) FROM posts WHERE thread_id = t.id AND is_deleted = 0) as post_count,
-                    COALESCE(t.pinned, 0), t.locked_at
+                    COALESCE(t.pinned, 0), t.locked_at,
+                    (SELECT COALESCE(MAX(id), 0) FROM posts WHERE thread_id = t.id) as latest_post_id
              FROM threads t
              JOIN users u ON t.author_id = u.id
              WHERE t.board_id = ?1
@@ -325,6 +326,7 @@ pub async fn list_threads(
                 post_count: row.get(5)?,
                 pinned: pinned != 0,
                 locked: locked_at.is_some(),
+                latest_post_id: row.get(8)?,
             })
         }))
         .filter_map(|r| r.ok())
@@ -844,7 +846,7 @@ fn is_mod_or_admin(role: &str) -> bool {
 fn sanitize_content_type(ct: &str) -> String {
     let ct_lower = ct.to_lowercase();
     let allowed = [
-        "image/png", "image/jpeg", "image/gif", "image/webp",
+        "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif",
         "application/pdf", "text/plain", "text/markdown",
         "application/json", "application/toml", "application/yaml",
         "application/zip", "application/x-tar", "application/gzip",
@@ -917,20 +919,24 @@ pub async fn mod_post(
 
     let role = get_user_role(&conn, user.user_id);
 
-    if !is_mod_or_admin(&role) {
-        return err(StatusCode::FORBIDDEN, "Moderator or admin role required");
-    }
-
-    // Verify post exists in thread
-    let exists: bool = conn
+    // Check post exists and get author
+    let post_author: Option<i64> = conn
         .query_row(
-            "SELECT COUNT(*) > 0 FROM posts WHERE id = ?1 AND thread_id = ?2",
+            "SELECT author_id FROM posts WHERE id = ?1 AND thread_id = ?2",
             params![post_id, thread_id],
             |row| row.get(0),
         )
-        .unwrap_or(false);
-    if !exists {
-        return err(StatusCode::NOT_FOUND, "Post not found");
+        .ok();
+
+    let post_author = match post_author {
+        Some(id) => id,
+        None => return err(StatusCode::NOT_FOUND, "Post not found"),
+    };
+
+    // Authors can delete/restore their own posts; otherwise need mod/admin
+    let is_author = post_author == user.user_id;
+    if !is_author && !is_mod_or_admin(&role) {
+        return err(StatusCode::FORBIDDEN, "Only the author or a moderator can do this");
     }
 
     let message = match req.action.as_str() {
@@ -1504,6 +1510,20 @@ pub async fn search(
     // Sanitize FTS5 query: wrap each word in quotes to prevent FTS syntax injection
     let query = validation::escape_fts_query(&raw_query);
 
+    // If sanitization removed all meaningful content (e.g. query was just quotes),
+    // return empty results rather than sending an invalid MATCH to FTS5.
+    if query.is_empty() || query.replace('"', "").trim().is_empty() {
+        return (
+            StatusCode::OK,
+            Json(SearchResponse {
+                results: vec![],
+                page,
+                total_pages: 1,
+            }),
+        )
+            .into_response();
+    }
+
     // Check if FTS table exists
     let fts_exists: bool = conn
         .query_row(
@@ -1549,12 +1569,14 @@ pub async fn search(
             .prepare(
                 "SELECT sm.kind, sm.thread_id, sm.post_id,
                         snippet(search_index, 0, '>>>', '<<<', '...', 48) as snippet,
-                        t.title, u.username
+                        t.title,
+                        CASE sm.kind WHEN 'post' THEN pu.username ELSE tu.username END
                  FROM search_index si
                  JOIN search_map sm ON si.rowid = sm.id
                  LEFT JOIN threads t ON sm.thread_id = t.id
                  LEFT JOIN posts p ON sm.kind = 'post' AND sm.post_id = p.id
-                 LEFT JOIN users u ON t.author_id = u.id
+                 LEFT JOIN users tu ON t.author_id = tu.id
+                 LEFT JOIN users pu ON p.author_id = pu.id
                  WHERE search_index MATCH ?1
                    AND CASE sm.kind
                        WHEN 'thread' THEN t.author_id = ?2
@@ -1606,11 +1628,14 @@ pub async fn search(
         .prepare(
             "SELECT sm.kind, sm.thread_id, sm.post_id,
                     snippet(search_index, 0, '>>>', '<<<', '...', 48) as snippet,
-                    t.title, u.username
+                    t.title,
+                    CASE sm.kind WHEN 'post' THEN pu.username ELSE tu.username END
              FROM search_index si
              JOIN search_map sm ON si.rowid = sm.id
              LEFT JOIN threads t ON sm.thread_id = t.id
-             LEFT JOIN users u ON t.author_id = u.id
+             LEFT JOIN posts p ON sm.kind = 'post' AND sm.post_id = p.id
+             LEFT JOIN users tu ON t.author_id = tu.id
+             LEFT JOIN users pu ON p.author_id = pu.id
              WHERE search_index MATCH ?1
              ORDER BY rank
              LIMIT ?2 OFFSET ?3",
@@ -1835,13 +1860,11 @@ pub async fn react_post(
     let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
 
 
-    if !db::ALLOWED_REACTIONS.contains(&req.reaction.as_str()) {
+    let reaction = req.reaction.trim();
+    if reaction.is_empty() || reaction.len() > agora_common::MAX_REACTION_LEN {
         return err(
             StatusCode::BAD_REQUEST,
-            format!(
-                "Invalid reaction. Allowed: {}",
-                db::ALLOWED_REACTIONS.join(", ")
-            ),
+            "Invalid reaction.",
         );
     }
 
@@ -1863,7 +1886,7 @@ pub async fn react_post(
     let existing: Option<i64> = conn
         .query_row(
             "SELECT id FROM reactions WHERE post_id = ?1 AND user_id = ?2 AND reaction = ?3",
-            params![post_id, user.user_id, &req.reaction],
+            params![post_id, user.user_id, reaction],
             |row| row.get(0),
         )
         .ok();
@@ -1874,7 +1897,7 @@ pub async fn react_post(
     } else {
         db_try!(conn.execute(
             "INSERT INTO reactions (post_id, user_id, reaction) VALUES (?1, ?2, ?3)",
-            params![post_id, user.user_id, &req.reaction],
+            params![post_id, user.user_id, reaction],
         ));
         true
     };
@@ -1883,7 +1906,7 @@ pub async fn react_post(
         StatusCode::OK,
         Json(ReactResponse {
             added,
-            reaction: req.reaction,
+            reaction: reaction.to_string(),
         }),
     )
         .into_response()
@@ -1935,47 +1958,46 @@ pub async fn get_mentions(
     let escaped_username = validation::escape_sql_like(&username);
     let pattern = format!("%@{}%", escaped_username);
 
-    let total: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM posts WHERE body LIKE ?1 ESCAPE '\\' AND author_id != ?2",
-            params![&pattern, user.user_id],
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
-
-    let (page, total_pages, offset) = paginate(total, MENTIONS_PER_PAGE, page);
-
+    // Use LIKE for initial SQL filtering, then verify with exact mention parsing
+    // to avoid false positives (e.g. @alice matching @alice_bob or email@alice).
     let mut stmt = db_try!(conn
         .prepare(
             "SELECT p.id, p.thread_id, t.title, u.username, p.body, p.created_at
              FROM posts p
              JOIN threads t ON p.thread_id = t.id
              JOIN users u ON p.author_id = u.id
-             WHERE p.body LIKE ?1 ESCAPE '\\' AND p.author_id != ?4
-             ORDER BY p.created_at DESC
-             LIMIT ?2 OFFSET ?3",
+             WHERE p.body LIKE ?1 ESCAPE '\\' AND p.author_id != ?2
+             ORDER BY p.created_at DESC",
         ));
 
-    let mentions: Vec<MentionResult> = db_try!(stmt
-        .query_map(params![&pattern, MENTIONS_PER_PAGE, offset, user.user_id], |row| {
+    let all_mentions: Vec<MentionResult> = db_try!(stmt
+        .query_map(params![&pattern, user.user_id], |row| {
             let body: String = row.get(4)?;
-            // UTF-8 safe truncation
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, body, row.get(5)?))
+        }))
+        .filter_map(|r| r.ok())
+        .filter(|(_, _, _, _, body, _): &(i64, i64, String, String, String, String)| {
+            validation::contains_mention(body, &username)
+        })
+        .map(|(post_id, thread_id, thread_title, author, body, created_at)| {
             let snippet = if body.chars().count() > 100 {
                 let truncated: String = body.chars().take(100).collect();
                 format!("{}...", truncated)
             } else {
                 body
             };
-            Ok(MentionResult {
-                post_id: row.get(0)?,
-                thread_id: row.get(1)?,
-                thread_title: row.get(2)?,
-                author: row.get(3)?,
-                snippet,
-                created_at: row.get(5)?,
-            })
-        }))
-        .filter_map(|r| r.ok())
+            MentionResult { post_id, thread_id, thread_title, author, snippet, created_at }
+        })
+        .collect();
+
+    let total = all_mentions.len() as i64;
+    let (page, total_pages, offset) = paginate(total, MENTIONS_PER_PAGE, page);
+    let offset = offset as usize;
+    let limit = MENTIONS_PER_PAGE as usize;
+    let mentions: Vec<MentionResult> = all_mentions
+        .into_iter()
+        .skip(offset)
+        .take(limit)
         .collect();
 
     (
@@ -2073,6 +2095,7 @@ mod tests {
         assert_eq!(sanitize_content_type("image/png"), "image/png");
         assert_eq!(sanitize_content_type("application/pdf"), "application/pdf");
         assert_eq!(sanitize_content_type("text/plain"), "text/plain");
+        assert_eq!(sanitize_content_type("image/avif"), "image/avif");
     }
 
     #[test]

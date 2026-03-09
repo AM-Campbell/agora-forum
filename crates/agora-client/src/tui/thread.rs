@@ -11,7 +11,7 @@ use crate::tui::app::{App, CachedImage};
 use crate::tui::boards::format_relative_time;
 
 /// Maximum height (in terminal rows) for an inline image.
-const MAX_IMAGE_HEIGHT: u16 = 20;
+const MAX_IMAGE_HEIGHT: u16 = 15;
 
 /// A segment of thread content: either text lines or an inline image.
 enum Segment<'a> {
@@ -26,18 +26,6 @@ impl Segment<'_> {
             Segment::Image { height, .. } => *height,
         }
     }
-}
-
-/// Calculate image display height maintaining aspect ratio, capped at MAX_IMAGE_HEIGHT.
-fn image_display_height(img: &image::DynamicImage, available_width: u16) -> u16 {
-    let (iw, ih) = (img.width() as f64, img.height() as f64);
-    if iw == 0.0 || ih == 0.0 {
-        return 1;
-    }
-    // Terminal cells are roughly 2:1 (height:width in pixels), so we divide by 2
-    let aspect = ih / iw / 2.0;
-    let h = (available_width as f64 * aspect).round() as u16;
-    h.max(1).min(MAX_IMAGE_HEIGHT)
 }
 
 pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
@@ -58,28 +46,16 @@ pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         post_info
     };
-    let w = area.width as usize;
     let footer_text = if app.post_cursor.is_some() {
-        if w >= 70 {
-            format!(
-                " POST MODE: [j/k] select  [R]eply-to  [+] react  [Esc] exit{}",
-                page_nav
-            )
-        } else {
-            format!(" POST: [j/k]  [R]eply  [+]react  [Esc]{}", page_nav)
-        }
-    } else if w >= 90 {
         format!(
-            " [n]ew reply  [e]dit  [b]ookmark  [Tab] post mode  [j/k] scroll  [r]efresh  [?]help  [Esc]{}",
-            page_nav
-        )
-    } else if w >= 70 {
-        format!(
-            " [n]ew  [e]dit  [b]ookmark  [Tab] posts  [?]help  [Esc]{}",
+            " POST MODE: [j/k] select  [e]dit  [d]elete  [R]eply-to  [+] react  [Esc] exit{}",
             page_nav
         )
     } else {
-        format!(" [n]ew  [Tab] posts  [?]help  [Esc]{}", page_nav)
+        format!(
+            " [n]ew reply  [b]ookmark  [Tab] post mode  [j/k] scroll  [r]efresh  [?]help  [Esc]{}",
+            page_nav
+        )
     };
     let footer_h = super::footer_height(&footer_text, area.width);
 
@@ -133,6 +109,7 @@ pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
     // Build segments
     let mut segments: Vec<Segment> = Vec::new();
     let mut prev_post_id: Option<i64> = None;
+    let mut new_divider_offset: Option<usize> = None;
 
     for (post_idx, post) in app.posts.iter().enumerate() {
         let mut lines: Vec<Line> = Vec::new();
@@ -141,6 +118,7 @@ pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
         if let Some(last_read_id) = app.last_read_post_id {
             let prev_is_old = prev_post_id.map(|pid| pid <= last_read_id).unwrap_or(true);
             if post.id > last_read_id && prev_is_old && prev_post_id.is_some() {
+                new_divider_offset = Some(segments.iter().map(|s| s.height() as usize).sum());
                 let divider_width = inner.width.saturating_sub(4) as usize;
                 let label = " NEW ";
                 let side = divider_width.saturating_sub(label.len()) / 2;
@@ -217,14 +195,7 @@ pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
         if !post.is_deleted && !post.reactions.is_empty() {
             let mut reaction_spans: Vec<Span> = vec![Span::raw("  ")];
             for rc in &post.reactions {
-                let emoji = match rc.reaction.as_str() {
-                    "thumbsup" => "\u{1F44D}",
-                    "check" => "\u{2705}",
-                    "heart" => "\u{2764}\u{FE0F}",
-                    "think" => "\u{1F914}",
-                    "laugh" => "\u{1F602}",
-                    other => other,
-                };
+                let emoji = &rc.reaction;
                 let style = if rc.reacted_by_me {
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
                 } else {
@@ -242,7 +213,7 @@ pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
 
         // Attachments — interleave text labels with image segments
         if !post.is_deleted && !post.attachments.is_empty() {
-            let mut att_text: Vec<Line> = vec![Line::from("")];
+            let mut att_text: Vec<Line> = Vec::new();
             for att in &post.attachments {
                 let is_image = is_displayable_image(&att.content_type);
                 let cached = app.image_cache.contains_key(&att.id);
@@ -252,10 +223,21 @@ pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
                     if !att_text.is_empty() {
                         segments.push(Segment::Text(std::mem::take(&mut att_text)));
                     }
-                    // Add image segment — extract DynamicImage for height calc
-                    let h = match &app.image_cache[&att.id] {
-                        CachedImage::Raw(img) => image_display_height(img, inner.width.saturating_sub(4)),
-                        CachedImage::Protocol(_) => MAX_IMAGE_HEIGHT, // fallback
+                    // Convert Raw → Protocol eagerly so we can query size_for
+                    if let Some(CachedImage::Raw(_)) = app.image_cache.get(&att.id) {
+                        if let Some(CachedImage::Raw(img)) = app.image_cache.remove(&att.id) {
+                            let picker = app.image_picker.as_ref().unwrap();
+                            let proto = picker.new_resize_protocol(img);
+                            app.image_cache.insert(att.id, CachedImage::Protocol { proto });
+                        }
+                    }
+                    // Use ratatui-image's own size calculation for accurate height
+                    let img_area = Rect::new(0, 0, inner.width.saturating_sub(4), MAX_IMAGE_HEIGHT);
+                    let h = if let Some(CachedImage::Protocol { proto }) = app.image_cache.get(&att.id) {
+                        let render_rect = proto.size_for(ratatui_image::Resize::Fit(None), img_area);
+                        render_rect.height.max(1).min(MAX_IMAGE_HEIGHT)
+                    } else {
+                        1
                     };
                     segments.push(Segment::Image {
                         attachment_id: att.id,
@@ -297,6 +279,14 @@ pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
 
         // Blank line between posts
         segments.push(Segment::Text(vec![Line::from("")]));
+    }
+
+    // Jump to NEW divider on first render after entering thread
+    if app.jump_to_unread {
+        app.jump_to_unread = false;
+        if let Some(offset) = new_divider_offset {
+            app.scroll_offset = offset;
+        }
     }
 
     // Calculate total height and render with scroll
@@ -342,26 +332,15 @@ pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
                 f.render_widget(paragraph, seg_rect);
             }
             Segment::Image { attachment_id, .. } => {
-                if app.image_picker.is_some() {
-                    // Convert Raw → Protocol on first render
-                    if let Some(CachedImage::Raw(_)) = app.image_cache.get(attachment_id) {
-                        if let Some(CachedImage::Raw(img)) = app.image_cache.remove(attachment_id) {
-                            let picker = app.image_picker.as_ref().unwrap();
-                            let proto = picker.new_resize_protocol(img);
-                            app.image_cache.insert(*attachment_id, CachedImage::Protocol(proto));
-                        }
-                    }
-                    // Render the StatefulProtocol
-                    if let Some(CachedImage::Protocol(proto)) = app.image_cache.get_mut(attachment_id) {
-                        let img_rect = Rect::new(
-                            seg_rect.x + 2,
-                            seg_rect.y,
-                            seg_rect.width.saturating_sub(4),
-                            seg_rect.height,
-                        );
-                        let image_widget = ratatui_image::StatefulImage::default();
-                        f.render_stateful_widget(image_widget, img_rect, proto);
-                    }
+                if let Some(CachedImage::Protocol { proto }) = app.image_cache.get_mut(attachment_id) {
+                    let img_rect = Rect::new(
+                        seg_rect.x + 2,
+                        seg_rect.y,
+                        seg_rect.width.saturating_sub(4),
+                        seg_rect.height,
+                    );
+                    let image_widget = ratatui_image::StatefulImage::default();
+                    f.render_stateful_widget(image_widget, img_rect, proto);
                 }
             }
         }
@@ -371,24 +350,72 @@ pub fn render(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Footer
     let footer = Paragraph::new(Line::from(vec![Span::raw(footer_text)]))
-        .block(Block::default().borders(Borders::ALL))
+        .block(super::footer_block())
         .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[1]);
 
     // Reaction picker popup
     if app.show_reaction_picker {
-        let popup_width = 52u16;
-        let popup_height = 5u16;
-        let popup_x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+        let picker_items = crate::tui::input::reaction_picker_items(&app.recent_reactions, &app.emojis);
+        let has_recents = !app.recent_reactions.is_empty();
+        let recents_count = app.recent_reactions.len().min(10);
+
+        // Build lines: recents header + recent items + divider + all emoji
+        let mut picker_lines: Vec<Line> = Vec::new();
+        if has_recents {
+            picker_lines.push(Line::from(Span::styled(
+                " Recent",
+                Style::default().add_modifier(Modifier::BOLD | Modifier::DIM),
+            )));
+            for (i, item) in picker_items.iter().take(recents_count).enumerate() {
+                let style = if i == app.reaction_picker_scroll {
+                    Style::default().add_modifier(Modifier::REVERSED)
+                } else {
+                    Style::default()
+                };
+                picker_lines.push(Line::from(Span::styled(format!(" {}", item.1), style)));
+            }
+            picker_lines.push(Line::from(Span::styled(
+                " ───────────────",
+                Style::default().add_modifier(Modifier::DIM),
+            )));
+        }
+        for (i, item) in picker_items.iter().skip(recents_count).enumerate() {
+            let global_idx = recents_count + i;
+            let style = if global_idx == app.reaction_picker_scroll {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default()
+            };
+            picker_lines.push(Line::from(Span::styled(format!(" {}", item.1), style)));
+        }
+
+        let content_height = picker_lines.len() as u16;
+        let popup_width = 24u16;
+        let popup_height = content_height.min(area.height.saturating_sub(4)) + 2; // +2 for borders
+        let popup_x = area.x + area.width.saturating_sub(popup_width) - 1;
         let popup_y = area.y + (area.height.saturating_sub(popup_height)) / 2;
         let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
         f.render_widget(Clear, popup_area);
-        let picker = Paragraph::new(vec![
-            Line::from(""),
-            Line::from("  1:\u{1F44D} thumbs up  2:\u{2705} check  3:\u{2764}\u{FE0F} heart  4:\u{1F914} think  5:\u{1F602} laugh"),
-            Line::from(""),
-        ])
-        .block(Block::default().borders(Borders::ALL).title(" React "));
-        f.render_widget(picker, popup_area);
+
+        let visible_inner = popup_height.saturating_sub(2); // height minus borders
+        // Scroll the paragraph so the selected item is visible
+        let scroll_offset = if app.reaction_picker_scroll as u16 >= visible_inner {
+            // Account for header/divider lines in the recents section
+            let header_lines = if has_recents { recents_count as u16 + 2 } else { 0 }; // header + items + divider
+            let selected_line = if app.reaction_picker_scroll < recents_count {
+                app.reaction_picker_scroll as u16 + 1 // +1 for "Recent" header
+            } else {
+                header_lines + (app.reaction_picker_scroll - recents_count) as u16
+            };
+            selected_line.saturating_sub(visible_inner / 2)
+        } else {
+            0
+        };
+
+        let picker_widget = Paragraph::new(picker_lines)
+            .scroll((scroll_offset, 0))
+            .block(Block::default().borders(Borders::ALL).title(" React [+] "));
+        f.render_widget(picker_widget, popup_area);
     }
 }
