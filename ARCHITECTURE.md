@@ -233,7 +233,7 @@ All responses are JSON. All timestamps are UTC ISO 8601.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/` | Plain text landing page with download instructions |
-| GET | `/version` | Server version (`{"version": "0.2.0"}`) |
+| GET | `/version` | Server version (`{"server_version": "0.4.2", "min_client_version": "0.1.0", "server_name": null}`) |
 | POST | `/register` | Register with username, public_key, invite_code |
 | GET | `/download/:filename` | Download client binaries from `static/` directory |
 

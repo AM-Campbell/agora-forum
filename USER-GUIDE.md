@@ -414,7 +414,24 @@ Everything you can do in the interactive browser, you can also do from the comma
 | `agora status` | Check connection |
 | `agora servers` | List servers |
 | `agora cache-clear` | Clear local cache |
-| `agora mod ...` | Moderation (see above) |
+| `agora detach <id>` | Delete your attachment |
+| `agora react <tid> <pid> <emoji>` | React to a post |
+| `agora bio` | View your bio |
+| `agora bio "text"` | Set your bio |
+| `agora mentions` | View posts mentioning you |
+| `agora who` | Who's online |
+| `agora members` | List all members |
+| `agora profile export` | Back up identities |
+| `agora profile import <file>` | Restore identities |
+| `agora completions <shell>` | Print shell completions (bash/zsh/fish) |
+| `agora mod delete <tid> <pid>` | Delete a post |
+| `agora mod restore <tid> <pid>` | Restore a deleted post |
+| `agora mod delete-thread <tid>` | Delete a thread |
+| `agora mod restore-thread <tid>` | Restore a deleted thread |
+| `agora mod pin/unpin <tid>` | Pin or unpin a thread |
+| `agora mod lock/unlock <tid>` | Lock or unlock a thread |
+| `agora mod ban/unban <user>` | Ban or unban a user |
+| `agora mod set-role <user> <role>` | Set user role (member/mod/admin) |
 
 ### Piping
 

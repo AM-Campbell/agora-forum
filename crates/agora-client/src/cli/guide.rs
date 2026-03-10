@@ -104,6 +104,9 @@ const CLI: &str = r#"
   CLI COMMANDS WITH EXAMPLES
   ==========================
 
+  SETUP
+    agora setup                           First-time setup (register + join a forum)
+
   BROWSING
     agora boards                          List all boards
     agora threads general                 Threads in "general"
@@ -165,6 +168,11 @@ const CLI: &str = r#"
     agora servers remove <addr>           Remove a server
     agora profile export                  Back up identities
     agora profile import backup.toml      Restore identities
+
+  SHELL COMPLETIONS
+    agora completions bash                Print bash completions
+    agora completions zsh                 Print zsh completions
+    agora completions fish                Print fish completions
 "#;
 
 const SERVERS: &str = r#"

@@ -16,7 +16,14 @@ use clap::{CommandFactory, Parser, Subcommand};
   agora boards            List boards
   agora threads <board>   List threads
   agora read <id>         Read a thread
-  agora guide             In-terminal documentation")]
+  agora post <board> \"Title\"  Start a new thread
+  agora reply <id>        Reply to a thread
+  agora dm <user>         Send a direct message
+  agora search \"query\"    Search posts
+  agora mod ...           Moderation commands
+  agora guide             In-terminal documentation
+
+  Run \x1b[1magora guide cli\x1b[0m for the full command list with examples.")]
 struct Cli {
     /// Connect to a specific server (overrides default_server)
     #[arg(long, global = true)]
