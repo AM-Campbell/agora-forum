@@ -91,7 +91,10 @@ else
     echo "  [2/4] Installing Tor..."
     echo ""
     echo "  Tor is free privacy software that Agora uses to connect securely."
-    echo "  This step may ask for your password."
+    echo "  Installing it requires administrator access, so your computer will"
+    echo "  ask for your password (the one you use to log in to your computer)."
+    echo "  The password won't appear as you type — that's normal. Just type it"
+    echo "  and press Enter."
     echo ""
 
     if command -v apt >/dev/null 2>&1; then
