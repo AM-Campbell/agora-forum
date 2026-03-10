@@ -1,7 +1,7 @@
 use crate::api::ApiClient;
 
-pub async fn run(api: &ApiClient, query: &str, by: Option<&str>) -> Result<(), String> {
-    let resp = api.search(query, by, 1).await?;
+pub async fn run(api: &ApiClient, query: &str, by: Option<&str>, page: i64) -> Result<(), String> {
+    let resp = api.search(query, by, page).await?;
 
     if resp.results.is_empty() {
         if let Some(user) = by {

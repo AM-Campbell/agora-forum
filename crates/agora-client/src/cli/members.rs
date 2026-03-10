@@ -35,11 +35,12 @@ pub async fn who(api: &ApiClient) -> Result<(), String> {
         return Ok(());
     }
 
-    println!("{:<16} {:<6}", "Username", "Posts");
-    println!("{}", "-".repeat(24));
+    println!("{:<16} {:<6} {}", "Username", "Posts", "Last seen");
+    println!("{}", "-".repeat(48));
 
     for user in &online {
-        println!("{:<16} {:<6}", user.username, user.post_count);
+        let last_seen = user.last_seen_at.as_deref().unwrap_or("-");
+        println!("{:<16} {:<6} {}", user.username, user.post_count, last_seen);
     }
 
     println!("\n{} user(s) online", online.len());

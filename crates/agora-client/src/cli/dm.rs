@@ -78,8 +78,9 @@ pub async fn read_conversation(
     api: &ApiClient,
     identity: &Identity,
     username: &str,
+    page: i64,
 ) -> Result<(), String> {
-    let resp = api.get_conversation(username, 1).await?;
+    let resp = api.get_conversation(username, page).await?;
 
     if resp.messages.is_empty() {
         println!("No messages with {}.", username);

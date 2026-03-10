@@ -1,7 +1,7 @@
 use crate::api::ApiClient;
 
-pub async fn run(api: &ApiClient) -> Result<(), String> {
-    let resp = api.get_mentions(1).await?;
+pub async fn run(api: &ApiClient, page: i64) -> Result<(), String> {
+    let resp = api.get_mentions(page).await?;
     if resp.mentions.is_empty() {
         println!("No mentions found.");
         return Ok(());

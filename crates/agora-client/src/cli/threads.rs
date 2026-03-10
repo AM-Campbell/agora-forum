@@ -1,8 +1,8 @@
 use crate::api::ApiClient;
 use crate::cache;
 
-pub async fn run(api: &ApiClient, db: &cache::Cache, board_slug: &str) -> Result<(), String> {
-    match api.get_threads(board_slug, 1).await {
+pub async fn run(api: &ApiClient, db: &cache::Cache, board_slug: &str, page: i64) -> Result<(), String> {
+    match api.get_threads(board_slug, page).await {
         Ok(resp) => {
             cache::cache_threads(db, resp.board.id, &resp.threads);
             println!("Board: {} — {}\n", resp.board.name, resp.board.description);

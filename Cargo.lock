@@ -20,7 +20,7 @@ dependencies = [
 
 [[package]]
 name = "agora-client"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
  "agora-common",
  "base64",
@@ -51,14 +51,14 @@ dependencies = [
 
 [[package]]
 name = "agora-common"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "agora-server"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
  "agora-common",
  "axum",

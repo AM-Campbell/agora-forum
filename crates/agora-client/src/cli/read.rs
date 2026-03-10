@@ -2,10 +2,11 @@ use crate::api::ApiClient;
 use crate::cache;
 use crate::cli::image;
 
-pub async fn run(api: &ApiClient, db: &cache::Cache, thread_id: i64) -> Result<(), String> {
+pub async fn run(api: &ApiClient, db: &cache::Cache, thread_id: i64, page: Option<i64>) -> Result<(), String> {
     let can_show_images = image::supports_kitty_graphics();
+    let start_page = page.unwrap_or(1);
 
-    match api.get_thread(thread_id, 1).await {
+    match api.get_thread(thread_id, start_page).await {
         Ok(resp) => {
             cache::cache_posts(db, thread_id, &resp.posts);
             if let Some(last_post) = resp.posts.last() {
@@ -18,10 +19,10 @@ pub async fn run(api: &ApiClient, db: &cache::Cache, thread_id: i64) -> Result<(
                 display_images(api, &resp.posts).await;
             }
 
-            // Fetch remaining pages
-            if resp.total_pages > 1 {
-                for page in 2..=resp.total_pages {
-                    if let Ok(page_resp) = api.get_thread(thread_id, page).await {
+            // Fetch remaining pages (only when no specific page requested)
+            if page.is_none() && resp.total_pages > 1 {
+                for p in 2..=resp.total_pages {
+                    if let Ok(page_resp) = api.get_thread(thread_id, p).await {
                         cache::cache_posts(db, thread_id, &page_resp.posts);
                         if let Some(last_post) = page_resp.posts.last() {
                             cache::mark_thread_read(db, thread_id, last_post.id);
@@ -34,6 +35,10 @@ pub async fn run(api: &ApiClient, db: &cache::Cache, thread_id: i64) -> Result<(
                         }
                     }
                 }
+            }
+
+            if resp.total_pages > 1 {
+                println!("page {}/{}", resp.page, resp.total_pages);
             }
         }
         Err(e) => {

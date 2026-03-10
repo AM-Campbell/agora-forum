@@ -41,11 +41,17 @@ enum Commands {
     Threads {
         /// Board slug
         board_slug: String,
+        /// Page number (default: 1)
+        #[arg(short, long, default_value = "1")]
+        page: i64,
     },
     /// Read a thread
     Read {
         /// Thread ID
         thread_id: i64,
+        /// Page number (default: all pages)
+        #[arg(short, long)]
+        page: Option<i64>,
     },
     /// Create a new thread
     #[command(after_help = "Examples:
@@ -119,6 +125,9 @@ enum Commands {
         /// Filter results by author username
         #[arg(long)]
         by: Option<String>,
+        /// Page number (default: 1)
+        #[arg(short, long, default_value = "1")]
+        page: i64,
     },
     /// Send a direct message
     #[command(after_help = "Examples:
@@ -137,6 +146,9 @@ enum Commands {
     DmRead {
         /// Username of conversation partner
         username: String,
+        /// Page number (default: 1)
+        #[arg(short, long, default_value = "1")]
+        page: i64,
     },
     /// List your bookmarks
     Bookmarks,
@@ -169,11 +181,11 @@ enum Commands {
         /// Attachment ID
         attachment_id: i64,
     },
-    /// React to a post (thumbsup, check, heart, think, laugh)
-    #[command(after_help = "Valid reactions: thumbsup, check, heart, think, laugh
+    /// React to a post (toggles — react again to remove)
+    #[command(after_help = "Reactions are emoji characters (e.g. 👍, ❤️, 😂). React again to remove.
 
 Example:
-  agora react 42 1 heart          React with heart to post #1 in thread 42")]
+  agora react 42 1 👍             React with thumbs up to post #1 in thread 42")]
     React {
         /// Thread ID
         thread_id: i64,
@@ -182,14 +194,21 @@ Example:
         /// Reaction name
         reaction: String,
     },
-    /// Set your bio
+    /// View or set your bio (no args to view, or provide text to set)
+    #[command(after_help = "Examples:
+  agora bio                       View your bio
+  agora bio \"Hello, I'm new!\"    Set your bio")]
     Bio {
-        /// Bio text (max 200 chars)
-        text: String,
+        /// Bio text to set (omit to view current bio)
+        text: Option<String>,
     },
     /// View posts that mention you
     #[command(name = "mentions")]
-    Mentions,
+    Mentions {
+        /// Page number (default: 1)
+        #[arg(short, long, default_value = "1")]
+        page: i64,
+    },
     /// Export or import your profile (identity keys + server configs)
     Profile {
         #[command(subcommand)]
@@ -411,8 +430,8 @@ async fn run_authenticated(cmd: Commands, override_server: Option<&str>) -> Resu
 
     match cmd {
         Commands::Boards => cli::boards::run(&api, &db).await,
-        Commands::Threads { board_slug } => cli::threads::run(&api, &db, &board_slug).await,
-        Commands::Read { thread_id } => cli::read::run(&api, &db, thread_id).await,
+        Commands::Threads { board_slug, page } => cli::threads::run(&api, &db, &board_slug, page).await,
+        Commands::Read { thread_id, page } => cli::read::run(&api, &db, thread_id, page).await,
         Commands::Post {
             board_slug,
             title,
@@ -449,6 +468,9 @@ async fn run_authenticated(cmd: Commands, override_server: Option<&str>) -> Resu
                     if let Some(inviter) = me.invited_by {
                         println!("Invited by: {}", inviter);
                     }
+                    if !me.bio.is_empty() {
+                        println!("Bio: {}", me.bio);
+                    }
                 }
                 Err(e) => println!("Offline: {}", e),
             }
@@ -461,21 +483,21 @@ async fn run_authenticated(cmd: Commands, override_server: Option<&str>) -> Resu
         }
         Commands::Members => cli::members::members(&api).await,
         Commands::Who => cli::members::who(&api).await,
-        Commands::Search { query, by } => {
+        Commands::Search { query, by, page } => {
             let q = query.as_deref().unwrap_or("");
             if q.is_empty() && by.is_none() {
                 return Err("Provide a search query or --by <username>".to_string());
             }
-            cli::search::run(&api, q, by.as_deref()).await
+            cli::search::run(&api, q, by.as_deref(), page).await
         }
         Commands::Dm { username, file } => {
             let id = identity::Identity::load_for(&server_addr)?;
             cli::dm::send(&api, &id, &username, file.as_deref()).await
         }
         Commands::Inbox => cli::dm::inbox(&api).await,
-        Commands::DmRead { username } => {
+        Commands::DmRead { username, page } => {
             let id = identity::Identity::load_for(&server_addr)?;
-            cli::dm::read_conversation(&api, &id, &username).await
+            cli::dm::read_conversation(&api, &id, &username, page).await
         }
         Commands::Bookmarks => cli::bookmark::list(&api).await,
         Commands::Bookmark { thread_id } => cli::bookmark::toggle(&api, thread_id).await,
@@ -508,8 +530,8 @@ async fn run_authenticated(cmd: Commands, override_server: Option<&str>) -> Resu
             let post_id = resolve_post_id(&api, thread_id, post_number).await?;
             cli::react::run(&api, thread_id, post_id, &reaction).await
         }
-        Commands::Bio { text } => cli::bio::run(&api, &text).await,
-        Commands::Mentions => cli::mentions::run(&api).await,
+        Commands::Bio { text } => cli::bio::run(&api, text.as_deref()).await,
+        Commands::Mentions { page } => cli::mentions::run(&api, page).await,
         Commands::Mod { action } => {
             match action {
                 ModAction::Pin { thread_id } => {
