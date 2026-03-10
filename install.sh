@@ -6,9 +6,9 @@ set -e
 REPO="AM-Campbell/agora-forum"
 INSTALL_DIR="$HOME/.local/bin"
 
-# Detect if this is an upgrade
+# Detect if this is an upgrade (binary exists AND Tor is installed = previous install was complete)
 IS_UPGRADE=0
-if [ -f "$INSTALL_DIR/agora" ]; then
+if [ -f "$INSTALL_DIR/agora" ] && command -v tor >/dev/null 2>&1; then
     IS_UPGRADE=1
 fi
 
@@ -55,6 +55,23 @@ esac
 
 if [ "$OS_NAME" = "macos" ] && [ "$ARCH_NAME" = "x86_64" ]; then
     echo "  Sorry, Intel Macs are not supported. Agora requires Apple Silicon (M1/M2/M3/M4)."
+    exit 1
+fi
+
+# ── macOS: require Homebrew early ─────────────────────────────
+# Homebrew is needed to install Tor (and potentially other deps).
+# Check this BEFORE downloading anything so a partial install doesn't
+# trick the next run into thinking it's an upgrade.
+
+if [ "$OS_NAME" = "macos" ] && ! command -v brew >/dev/null 2>&1; then
+    echo "  Agora requires Homebrew on macOS (to install Tor and other tools)."
+    echo ""
+    echo "  To install Homebrew, paste this into your terminal:"
+    echo ""
+    echo "      /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+    echo ""
+    echo "  After installing Homebrew, close and reopen your terminal,"
+    echo "  then re-run this Agora installer."
     exit 1
 fi
 
@@ -108,17 +125,7 @@ ATTEMPTS=0
 MAX_ATTEMPTS=15
 
 while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
-    # Try standard Tor port
-    if (echo >/dev/tcp/127.0.0.1/9050) 2>/dev/null; then
-        SOCKS_PORT=9050
-        break
-    fi
-    # Try Tor Browser port
-    if (echo >/dev/tcp/127.0.0.1/9150) 2>/dev/null; then
-        SOCKS_PORT=9150
-        break
-    fi
-    # Fallback: try with nc if /dev/tcp not available (common on macOS)
+    # Try nc first (works on macOS and most Linux; /dev/tcp is bash-only)
     if command -v nc >/dev/null 2>&1; then
         if nc -z 127.0.0.1 9050 2>/dev/null; then
             SOCKS_PORT=9050
@@ -128,6 +135,15 @@ while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
             SOCKS_PORT=9150
             break
         fi
+    fi
+    # Fallback: /dev/tcp (bash-only, won't work under plain sh on macOS)
+    if (echo >/dev/tcp/127.0.0.1/9050) 2>/dev/null; then
+        SOCKS_PORT=9050
+        break
+    fi
+    if (echo >/dev/tcp/127.0.0.1/9150) 2>/dev/null; then
+        SOCKS_PORT=9150
+        break
     fi
     ATTEMPTS=$((ATTEMPTS + 1))
     if [ $ATTEMPTS -eq 1 ]; then
@@ -189,15 +205,31 @@ chmod +x "$INSTALL_DIR/agora"
 
 add_to_path() {
     rcfile="$1"
-    if [ -f "$rcfile" ]; then
-        if ! grep -q '\.local/bin' "$rcfile" 2>/dev/null; then
-            echo '' >> "$rcfile"
-            echo '# Added by Agora installer' >> "$rcfile"
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$rcfile"
-            return 0
-        fi
+    # Create the file if it doesn't exist (new Mac users often have no .zshrc)
+    if [ ! -f "$rcfile" ]; then
+        touch "$rcfile"
+    fi
+    if ! grep -q '\.local/bin' "$rcfile" 2>/dev/null; then
+        echo '' >> "$rcfile"
+        echo '# Added by Agora installer' >> "$rcfile"
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$rcfile"
+        return 0
     fi
     return 1
+}
+
+# Figure out which rc file to update based on the user's actual shell
+detect_shell_rc() {
+    CURRENT_SHELL="$(basename "$SHELL" 2>/dev/null || echo "")"
+    case "$CURRENT_SHELL" in
+        zsh)  echo "$HOME/.zshrc" ;;
+        fish) echo "" ;; # fish uses a different PATH mechanism
+        bash) echo "$HOME/.bashrc" ;;
+        *)
+            # Unknown shell — use .profile as a safe fallback (read by most login shells)
+            echo "$HOME/.profile"
+            ;;
+    esac
 }
 
 PATH_UPDATED=0
@@ -206,15 +238,9 @@ case ":$PATH:" in
         # Already in PATH
         ;;
     *)
-        UPDATED=0
-        if [ -f "$HOME/.zshrc" ]; then
-            add_to_path "$HOME/.zshrc" && UPDATED=1
-        fi
-        if [ -f "$HOME/.bashrc" ]; then
-            add_to_path "$HOME/.bashrc" && UPDATED=1
-        fi
-        if [ $UPDATED -eq 0 ]; then
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+        SHELL_RC="$(detect_shell_rc)"
+        if [ -n "$SHELL_RC" ]; then
+            add_to_path "$SHELL_RC"
         fi
         PATH_UPDATED=1
         # Add to current session so 'agora setup' works immediately
@@ -257,8 +283,8 @@ else
     echo ""
     echo "  Optional: enable tab-completion for agora commands:"
     echo ""
-    CURRENT_SHELL="$(basename "$SHELL" 2>/dev/null || echo "bash")"
-    case "$CURRENT_SHELL" in
+    COMP_SHELL="$(basename "$SHELL" 2>/dev/null || echo "bash")"
+    case "$COMP_SHELL" in
         zsh)
             echo "      agora completions zsh >> ~/.zshrc && source ~/.zshrc"
             ;;
