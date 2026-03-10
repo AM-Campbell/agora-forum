@@ -16,7 +16,7 @@ Open your terminal and paste this:
 curl -sSL https://raw.githubusercontent.com/AM-Campbell/agora-forum/refs/heads/master/install.sh | sh
 ```
 
-This installs Tor (if needed), downloads the Agora binary, and sets up your PATH. 
+This installs Tor (if needed), downloads the Agora binary, and sets up your PATH. **To update**, just run the same command again — it will download the latest version while keeping your profile and settings.
 
 Then join a forum:
 
