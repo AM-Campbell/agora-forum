@@ -62,10 +62,10 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
     let widths = [
         Constraint::Length(4),
-        Constraint::Length(24),
+        Constraint::Min(16),
         Constraint::Length(8),
         Constraint::Length(8),
-        Constraint::Min(10),
+        Constraint::Length(10),
     ];
 
     let table = Table::new(rows, widths).header(header);

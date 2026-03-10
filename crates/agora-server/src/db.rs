@@ -142,6 +142,10 @@ pub fn migrate(db: &Db) {
     conn.execute("ALTER TABLE threads ADD COLUMN locked_at TEXT", [])
         .ok();
 
+    // Add is_deleted column on threads (idempotent)
+    conn.execute("ALTER TABLE threads ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0", [])
+        .ok();
+
     // Add parent_post_id column on posts (Feature: reply-to threading)
     conn.execute(
         "ALTER TABLE posts ADD COLUMN parent_post_id INTEGER",

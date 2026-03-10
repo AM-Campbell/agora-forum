@@ -60,11 +60,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                 prefix.push('*');
             }
             let marker = if prefix.is_empty() { " ".to_string() } else { prefix };
-            let title = if t.title.len() > 28 {
-                format!("{}..", &t.title[..26])
-            } else {
-                t.title.clone()
-            };
+            let title = t.title.clone();
             let author = if t.author.len() > 12 {
                 format!("{}..", &t.author[..10])
             } else {
@@ -93,10 +89,10 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let widths = [
         Constraint::Length(2),
         Constraint::Length(5),
-        Constraint::Length(28),
+        Constraint::Min(20),
         Constraint::Length(14),
         Constraint::Length(6),
-        Constraint::Min(10),
+        Constraint::Length(10),
     ];
 
     let table = Table::new(rows, widths).header(header);

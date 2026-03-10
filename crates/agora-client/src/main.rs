@@ -164,6 +164,11 @@ enum Commands {
         #[arg(short, long)]
         output: Option<String>,
     },
+    /// Delete an attachment you uploaded
+    Detach {
+        /// Attachment ID
+        attachment_id: i64,
+    },
     /// React to a post (thumbsup, check, heart, think, laugh)
     #[command(after_help = "Valid reactions: thumbsup, check, heart, think, laugh
 
@@ -478,6 +483,15 @@ async fn run_authenticated(cmd: Commands, override_server: Option<&str>) -> Resu
             attachment_id,
             output,
         } => cli::attach::download(&api, attachment_id, output.as_deref()).await,
+        Commands::Detach { attachment_id } => {
+            match api.delete_attachment(attachment_id).await {
+                Ok(resp) => {
+                    println!("{}", resp.message);
+                    Ok(())
+                }
+                Err(e) => Err(e),
+            }
+        }
         Commands::React {
             thread_id,
             post_number,

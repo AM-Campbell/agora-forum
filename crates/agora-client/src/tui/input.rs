@@ -22,6 +22,7 @@ pub enum Action {
     ToggleBookmark { thread_id: i64 },
     ReactToPost { thread_id: i64, post_id: i64, reaction: String },
     DeletePost { thread_id: i64, post_id: i64 },
+    DeleteThread { thread_id: i64 },
     GenerateInvite,
 
     // Pagination
@@ -530,6 +531,17 @@ pub fn handle_key(app: &mut App, key: KeyEvent) -> Action {
             if app.current_view() == &View::Invites {
                 if let Some(inv) = app.invites.get(app.selected_index) {
                     Action::CopyToClipboard { text: inv.code.clone() }
+                } else {
+                    Action::None
+                }
+            } else {
+                Action::None
+            }
+        }
+        KeyCode::Char('D') => {
+            if app.current_view() == &View::Threads {
+                if let Some(thread) = app.threads.get(app.selected_index) {
+                    Action::DeleteThread { thread_id: thread.id }
                 } else {
                     Action::None
                 }

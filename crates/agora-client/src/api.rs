@@ -178,6 +178,23 @@ impl ApiClient {
         }
     }
 
+    async fn authed_delete<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, String> {
+        let headers = self.auth_headers("DELETE", path, "");
+        let mut req = self.client.delete(self.url(path));
+        for (k, v) in &headers {
+            req = req.header(k, v);
+        }
+        let resp = req.send().await.map_err(|e| format!("Network error: {}", e))?;
+
+        if resp.status().is_success() {
+            Self::limited_json(resp).await
+        } else {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            Err(Self::parse_error(status, &body))
+        }
+    }
+
     /// Get raw bytes from an authenticated GET (for attachment downloads).
     async fn authed_get_bytes(&self, path: &str) -> Result<(Vec<u8>, String, String), String> {
         let headers = self.auth_headers("GET", path, "");
@@ -419,6 +436,14 @@ impl ApiClient {
         attachment_id: i64,
     ) -> Result<(Vec<u8>, String, String), String> {
         self.authed_get_bytes(&format!("/attachments/{}", attachment_id))
+            .await
+    }
+
+    pub async fn delete_attachment(
+        &self,
+        attachment_id: i64,
+    ) -> Result<ModActionResponse, String> {
+        self.authed_delete(&format!("/attachments/{}", attachment_id))
             .await
     }
 

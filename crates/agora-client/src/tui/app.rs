@@ -644,6 +644,22 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
                         Err(e) => app.status_message = Some(format!("Error: {}", e)),
                     }
                 }
+                Action::DeleteThread { thread_id } => {
+                    match api.mod_thread(thread_id, "delete").await {
+                        Ok(_) => {
+                            app.status_message = Some("Thread deleted.".to_string());
+                            // Refresh thread list
+                            if let Some(board) = &app.current_board {
+                                if let Ok(resp) = api.get_threads(&board.slug, app.current_page).await {
+                                    app.threads = resp.threads;
+                                    app.total_pages = resp.total_pages;
+                                    app.clamp_selection();
+                                }
+                            }
+                        }
+                        Err(e) => app.status_message = Some(format!("Error: {}", e)),
+                    }
+                }
                 Action::GenerateInvite => {
                     match api.create_invite().await {
                         Ok(resp) => {

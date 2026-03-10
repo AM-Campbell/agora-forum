@@ -239,8 +239,8 @@ pub async fn list_boards(
     let mut stmt = db_try!(conn
         .prepare(
             "SELECT b.id, b.slug, b.name, b.description,
-                    (SELECT COUNT(*) FROM threads WHERE board_id = b.id) as thread_count,
-                    (SELECT MAX(last_post_at) FROM threads WHERE board_id = b.id) as last_post_at
+                    (SELECT COUNT(*) FROM threads WHERE board_id = b.id AND COALESCE(is_deleted, 0) = 0) as thread_count,
+                    (SELECT MAX(last_post_at) FROM threads WHERE board_id = b.id AND COALESCE(is_deleted, 0) = 0) as last_post_at
              FROM boards b ORDER BY b.sort_order, b.name",
         ));
 
@@ -292,7 +292,7 @@ pub async fn list_threads(
     // Count total threads
     let total: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM threads WHERE board_id = ?1",
+            "SELECT COUNT(*) FROM threads WHERE board_id = ?1 AND COALESCE(is_deleted, 0) = 0",
             [board.id],
             |row| row.get(0),
         )
@@ -308,7 +308,7 @@ pub async fn list_threads(
                     (SELECT COALESCE(MAX(id), 0) FROM posts WHERE thread_id = t.id) as latest_post_id
              FROM threads t
              JOIN users u ON t.author_id = u.id
-             WHERE t.board_id = ?1
+             WHERE t.board_id = ?1 AND COALESCE(t.is_deleted, 0) = 0
              ORDER BY COALESCE(t.pinned, 0) DESC, t.last_post_at DESC
              LIMIT ?2 OFFSET ?3",
         ));
@@ -900,7 +900,15 @@ pub async fn mod_thread(
             db_try!(conn.execute("UPDATE threads SET locked_at = NULL WHERE id = ?1", [thread_id]));
             "Thread unlocked"
         }
-        _ => return err(StatusCode::BAD_REQUEST, "Invalid action. Use: pin, unpin, lock, unlock"),
+        "delete" => {
+            db_try!(conn.execute("UPDATE threads SET is_deleted = 1 WHERE id = ?1", [thread_id]));
+            "Thread deleted"
+        }
+        "restore" => {
+            db_try!(conn.execute("UPDATE threads SET is_deleted = 0 WHERE id = ?1", [thread_id]));
+            "Thread restored"
+        }
+        _ => return err(StatusCode::BAD_REQUEST, "Invalid action. Use: pin, unpin, lock, unlock, delete, restore"),
     };
 
     info!(action = %req.action, thread = %thread_id, by = %user.username, "Thread moderation");
@@ -1250,6 +1258,45 @@ pub async fn download_attachment(
         }
         Err(_) => err(StatusCode::NOT_FOUND, "Attachment not found"),
     }
+}
+
+pub async fn delete_attachment(
+    State(state): State<AppState>,
+    user: axum::Extension<AuthUser>,
+    Path(attachment_id): Path<i64>,
+) -> Response {
+    let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
+
+    // Look up attachment and its post author
+    let result = conn.query_row(
+        "SELECT a.post_id, p.author_id FROM attachments a
+         JOIN posts p ON a.post_id = p.id
+         WHERE a.id = ?1",
+        [attachment_id],
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+    );
+
+    let (_post_id, author_id) = match result {
+        Ok(info) => info,
+        Err(_) => return err(StatusCode::NOT_FOUND, "Attachment not found"),
+    };
+
+    // Must be post author or mod/admin
+    if author_id != user.user_id {
+        let role = get_user_role(&conn, user.user_id);
+        if !is_mod_or_admin(&role) {
+            return err(StatusCode::FORBIDDEN, "You can only delete your own attachments");
+        }
+    }
+
+    db_try!(conn.execute("DELETE FROM attachments WHERE id = ?1", [attachment_id]));
+
+    info!(attachment = %attachment_id, by = %user.username, "Attachment deleted");
+
+    (StatusCode::OK, Json(ModActionResponse {
+        success: true,
+        message: "Attachment deleted".to_string(),
+    })).into_response()
 }
 
 // --- Invites ---

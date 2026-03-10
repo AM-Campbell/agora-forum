@@ -8,7 +8,7 @@ mod validation;
 use axum::{
     extract::DefaultBodyLimit,
     middleware,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Router,
 };
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -166,7 +166,7 @@ async fn main() {
         )
         .route(
             "/attachments/:id",
-            get(routes::download_attachment),
+            get(routes::download_attachment).delete(routes::delete_attachment),
         )
         // Reactions
         .route(
