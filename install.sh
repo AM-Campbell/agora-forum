@@ -1,9 +1,9 @@
 #!/bin/sh
 # Agora — install script
-# Usage: curl -sSL https://raw.githubusercontent.com/am-campbell/agora-forum/main/install.sh | sh
+# Usage: curl -sSL https://raw.githubusercontent.com/AM-Campbell/agora-forum/refs/heads/master/install.sh | sh
 set -e
 
-REPO="am-campbell/agora-forum"
+REPO="AM-Campbell/agora-forum"
 INSTALL_DIR="$HOME/.local/bin"
 
 # Detect if this is an upgrade
@@ -254,5 +254,20 @@ else
     echo "  You'll need two things from the person who invited you:"
     echo "    1. A server address (looks like http://xxxx.onion)"
     echo "    2. An invite code (a short string of letters and numbers)"
+    echo ""
+    echo "  Optional: enable tab-completion for agora commands:"
+    echo ""
+    CURRENT_SHELL="$(basename "$SHELL" 2>/dev/null || echo "bash")"
+    case "$CURRENT_SHELL" in
+        zsh)
+            echo "      agora completions zsh >> ~/.zshrc && source ~/.zshrc"
+            ;;
+        fish)
+            echo "      agora completions fish > ~/.config/fish/completions/agora.fish"
+            ;;
+        *)
+            echo "      agora completions bash >> ~/.bashrc && source ~/.bashrc"
+            ;;
+    esac
     echo ""
 fi

@@ -70,20 +70,21 @@ const TUI: &str = r#"
     k / Up      Move up
     Enter       Open thread
     n           New thread
+    D           Delete thread (mods only)
     [ / ]       Previous / next page
 
   THREAD VIEW
     j / Down    Scroll down
     k / Up      Scroll up
-    Space       Page down
+    PgDn/PgUp   Page down / up
     g / G       Jump to top / bottom
     n           Reply to thread
     Tab         Enter post selection mode
     b           Toggle bookmark
-    e           Edit your last post
 
   POST SELECTION (press Tab in thread view)
     j / k       Move between posts
+    e           Edit selected post
     R           Reply to selected post
     +           React to post
     Esc         Exit selection mode
@@ -106,7 +107,9 @@ const CLI: &str = r#"
   BROWSING
     agora boards                          List all boards
     agora threads general                 Threads in "general"
+    agora threads general --page 2        Page 2 of threads
     agora read 42                         Read thread #42
+    agora read 42 --page 3               Page 3 of thread
 
   POSTING
     agora post general "My Title"         Opens $EDITOR for body
@@ -122,6 +125,7 @@ const CLI: &str = r#"
   EDITING
     agora edit 42 3                       Edit post 3 in thread 42
     agora edit 42 3 -f updated.txt        Edit from file
+    agora history 42 3                    View edit history of post 3
 
   SEARCHING
     agora search "rust async"             Search all posts
@@ -136,9 +140,10 @@ const CLI: &str = r#"
 
   FILES & REACTIONS
     agora attach 42 1 photo.jpg           Attach file to post
+    agora detach 7                        Delete your attachment #7
     agora download 7                      Download attachment #7
     agora download 7 -o pic.jpg           Download to specific path
-    agora react 42 1 heart                React to post
+    agora react 42 1 👍                    React to post (use emoji chars)
 
   ACCOUNT & META
     agora status                          Check connection + identity
@@ -146,6 +151,7 @@ const CLI: &str = r#"
     agora invites                         List your invites
     agora members                         List all members
     agora who                             Who's online
+    agora bio                             View your bio
     agora bio "I like Rust"               Set your bio
     agora bookmarks                       List bookmarked threads
     agora bookmark 42                     Toggle bookmark
@@ -222,7 +228,7 @@ const MODERATION: &str = r#"
 
   ROLES
     member    Can post, reply, react, DM — standard access
-    mod       Can also pin/lock threads, delete/restore posts, ban users
+    mod       Can also pin/lock threads, delete/restore posts and threads, ban users
     admin     Can do everything mods can + set user roles
 
   THREAD MODERATION
@@ -230,6 +236,8 @@ const MODERATION: &str = r#"
     agora mod unpin 42                    Unpin thread 42
     agora mod lock 42                     Lock thread (no new replies)
     agora mod unlock 42                   Unlock thread
+    agora mod delete-thread 42            Soft-delete entire thread
+    agora mod restore-thread 42           Restore deleted thread
 
   POST MODERATION
     agora mod delete 42 3                 Soft-delete post 3 in thread 42
@@ -242,7 +250,7 @@ const MODERATION: &str = r#"
     agora mod set-role alice member       Demote to member
 
   NOTES
-    - Deleted posts show "[deleted]" but are preserved in the database
+    - Deleted posts and threads are soft-deleted (preserved in the database)
     - Banned users cannot post, reply, or create threads
     - Only admins can change roles
 "#;

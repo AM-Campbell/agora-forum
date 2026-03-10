@@ -220,7 +220,7 @@ Example:
         topic: Option<String>,
     },
     /// Moderation commands
-    #[command(after_help = "Actions: pin, unpin, lock, unlock, delete, restore, ban, unban, set-role
+    #[command(after_help = "Actions: pin, unpin, lock, unlock, delete, restore, delete-thread, restore-thread, ban, unban, set-role
 Run: agora guide moderation   for full details and examples")]
     Mod {
         #[command(subcommand)]

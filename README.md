@@ -80,7 +80,7 @@ The client also has built-in documentation: run `agora guide` for in-terminal he
 ### Building from Source
 
 ```
-git clone https://github.com/am-campbell/agora-forum && cd agora-forum
+git clone https://github.com/AM-Campbell/agora-forum && cd agora-forum
 cargo build --release
 ```
 

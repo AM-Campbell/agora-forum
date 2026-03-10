@@ -15,10 +15,15 @@ Everything else derives from `Cargo.toml` automatically:
 
 **To cut a release:**
 1. Bump `version` in all three `Cargo.toml` files to the new version
-2. Commit the version bump
-3. Tag with the **exact same version**: `git tag v<version>`
-4. Push with tags: `git push origin master --tags`
-5. Wait for CI to finish before telling anyone to upgrade
+2. **Pre-release sanity check** — before committing, review for obvious gaps:
+   - Help text and `after_help` strings mention all current commands/actions
+   - `guide.rs` documents all CLI commands, flags, and features
+   - README.md and SERVER-GUIDE.md are up to date
+   - No stale version numbers or hardcoded strings
+3. Commit the version bump (and any fixes from step 2)
+4. Tag with the **exact same version**: `git tag v<version>`
+5. Push with tags: `git push origin master --tags`
+6. Wait for CI to finish before telling anyone to upgrade
 
 **The git tag and Cargo.toml version MUST match.** Never tag without bumping Cargo.toml first.
 
