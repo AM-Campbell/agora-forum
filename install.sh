@@ -81,6 +81,12 @@ echo "  [1/4] Detected $OS_NAME ($ARCH_NAME)"
 
 if command -v tor >/dev/null 2>&1; then
     echo "  [2/4] Tor is already installed"
+    # Make sure the service is running (user may have installed but not started it)
+    if [ "$OS_NAME" = "macos" ] && command -v brew >/dev/null 2>&1; then
+        brew services start tor 2>/dev/null || true
+    elif command -v systemctl >/dev/null 2>&1; then
+        sudo systemctl start tor 2>/dev/null || true
+    fi
 else
     echo "  [2/4] Installing Tor..."
     echo ""
