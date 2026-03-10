@@ -4,6 +4,22 @@ use std::process::Command;
 
 use crate::config;
 
+/// Editor help text included in every editor template (stripped as comments).
+pub const EDITOR_HELP: &str = "\
+# ── How to use this editor ──────────────────────────────────
+#
+#   nano:  Save and post = Ctrl+O, Enter, Ctrl+X
+#          Quit without posting = Ctrl+X, then N
+#
+#   vim:   Save and post = Esc, then type :wq and Enter
+#          Quit without posting = Esc, then type :q! and Enter
+#
+# To cancel your post, save an empty file (delete everything
+# below the # lines) or quit without saving.
+#
+# Lines starting with # are removed automatically.
+#";
+
 /// Open $EDITOR with a temp file and return the user's input.
 /// Lines starting with "# " are stripped.
 /// Returns None if the content is empty after stripping.
@@ -81,6 +97,8 @@ pub fn build_reply_context(
     }
 
     content.push_str("# --- Write your reply below this line ---\n");
+    content.push_str("#\n");
+    content.push_str(EDITOR_HELP);
     content.push('\n');
     content
 }
@@ -103,6 +121,8 @@ pub fn build_reply_to_context(
     }
     content.push_str("#\n");
     content.push_str("# --- Write your reply below this line ---\n");
+    content.push_str("#\n");
+    content.push_str(EDITOR_HELP);
     content.push('\n');
     content
 }

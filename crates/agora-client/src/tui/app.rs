@@ -761,8 +761,8 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
 
                             if !title.is_empty() {
                                 let content = format!(
-                                    "# New thread in: {}\n# Title: {}\n#\n# --- Write your post below this line ---\n\n",
-                                    board_slug, title
+                                    "# New thread in: {}\n# Title: {}\n#\n# --- Write your post below this line ---\n#\n{}\n",
+                                    board_slug, title, editor::EDITOR_HELP
                                 );
                                 match editor::open_editor(
                                     &format!("thread_{}", board_slug),
@@ -867,8 +867,8 @@ pub async fn run_tui(api: ApiClient, server_addr: String, server_name: String, u
                         }
                         EditorKind::EditPost { thread_id, post_id, old_body, thread_title } => {
                             let content = format!(
-                                "# Editing post #{} in thread: {}\n# Modify the text below and save.\n\n{}",
-                                post_id, thread_title, old_body
+                                "# Editing post #{} in thread: {}\n# Modify the text below and save.\n#\n{}\n\n{}",
+                                post_id, thread_title, editor::EDITOR_HELP, old_body
                             );
                             match editor::open_editor(
                                 &format!("edit_{}_{}", thread_id, post_id),
@@ -1121,8 +1121,8 @@ async fn send_dm_via_editor(api: &ApiClient, recipient: &str) {
     };
 
     let content = format!(
-        "# Direct message to: {}\n#\n# --- Write your message below this line ---\n\n",
-        recipient
+        "# Direct message to: {}\n#\n# --- Write your message below this line ---\n#\n{}\n",
+        recipient, crate::editor::EDITOR_HELP
     );
 
     match crate::editor::open_editor(&format!("dm_{}", recipient), &content) {

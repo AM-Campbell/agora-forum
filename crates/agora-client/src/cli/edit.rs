@@ -37,8 +37,8 @@ pub async fn run(
         None => {
             // Open editor with current body
             let content = format!(
-                "# Editing post {} in thread {}\n# Current body is shown below. Edit and save to update.\n# Lines starting with # are comments and will be stripped.\n\n{}",
-                post_id, thread_id, history.current_body
+                "# Editing post {} in thread {}\n# Current body is shown below. Edit and save to update.\n# Lines starting with # are comments and will be stripped.\n#\n{}\n\n{}",
+                post_id, thread_id, crate::editor::EDITOR_HELP, history.current_body
             );
             match editor::open_editor(&format!("edit_{}_{}", thread_id, post_id), &content)? {
                 Some(body) => body.trim().to_string(),

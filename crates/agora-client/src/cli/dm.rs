@@ -46,7 +46,7 @@ pub async fn send(
         }
         None => {
             // Open editor
-            let content = "# Write your direct message below this line\n\n";
+            let content = &format!("# Write your direct message below this line\n#\n{}\n", crate::editor::EDITOR_HELP);
             match crate::editor::open_editor(&format!("dm_{}", username), content) {
                 Ok(Some(body)) => body,
                 Ok(None) => {

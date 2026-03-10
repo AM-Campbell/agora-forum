@@ -22,8 +22,8 @@ pub async fn run(
         }
     } else {
         let content = format!(
-            "# New thread in: {}\n# Title: {}\n#\n# --- Write your post below this line ---\n\n",
-            board_slug, title
+            "# New thread in: {}\n# Title: {}\n#\n# --- Write your post below this line ---\n#\n{}\n",
+            board_slug, title, crate::editor::EDITOR_HELP
         );
         match editor::open_editor(&format!("thread_{}", board_slug), &content)? {
             Some(body) => body,
