@@ -238,13 +238,14 @@ detect_shell_rc() {
     esac
 }
 
+SHELL_RC="$(detect_shell_rc)"
+
 PATH_UPDATED=0
 case ":$PATH:" in
     *":$INSTALL_DIR:"*|*":$HOME/.local/bin:"*)
         # Already in PATH
         ;;
     *)
-        SHELL_RC="$(detect_shell_rc)"
         if [ -n "$SHELL_RC" ]; then
             add_to_path "$SHELL_RC"
         fi
@@ -253,6 +254,20 @@ case ":$PATH:" in
         export PATH="$HOME/.local/bin:$PATH"
         ;;
 esac
+
+# ── Set default editor if not configured ──────────────────────
+# Non-technical users (especially on fresh Macs) may have no EDITOR set,
+# which means they'd get dropped into vim. Default to nano instead.
+
+if [ -z "$EDITOR" ] && [ -z "$VISUAL" ] && command -v nano >/dev/null 2>&1; then
+    if [ -n "$SHELL_RC" ]; then
+        if ! grep -q 'export EDITOR=' "$SHELL_RC" 2>/dev/null; then
+            echo '' >> "$SHELL_RC"
+            echo '# Default editor (added by Agora installer)' >> "$SHELL_RC"
+            echo 'export EDITOR=nano' >> "$SHELL_RC"
+        fi
+    fi
+fi
 
 # ── Done ─────────────────────────────────────────────────────────
 
