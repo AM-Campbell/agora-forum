@@ -8,13 +8,15 @@ Someone you know runs a forum. They give you two things: a server address (a lon
 
 ## Install
 
+**If you're on macOS and don't have Homebrew, install it first: https://brew.sh**
+
 Open your terminal and paste this:
 
 ```
 curl -sSL https://raw.githubusercontent.com/AM-Campbell/agora-forum/refs/heads/master/install.sh | sh
 ```
 
-This installs Tor (if needed), downloads the Agora binary, and sets up your PATH. If you're on macOS and don't have Homebrew, install it first: https://brew.sh
+This installs Tor (if needed), downloads the Agora binary, and sets up your PATH. 
 
 Then join a forum:
 
