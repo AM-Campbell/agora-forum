@@ -285,6 +285,14 @@ enum ModAction {
         thread_id: i64,
         post_number: i64,
     },
+    /// Delete a thread (soft delete, hides from listings)
+    DeleteThread {
+        thread_id: i64,
+    },
+    /// Restore a deleted thread
+    RestoreThread {
+        thread_id: i64,
+    },
     /// Ban a user
     Ban {
         username: String,
@@ -528,6 +536,14 @@ async fn run_authenticated(cmd: Commands, override_server: Option<&str>) -> Resu
                 ModAction::Restore { thread_id, post_number } => {
                     let post_id = resolve_post_id(&api, thread_id, post_number).await?;
                     let resp = api.mod_post(thread_id, post_id, "restore").await?;
+                    println!("{}", resp.message);
+                }
+                ModAction::DeleteThread { thread_id } => {
+                    let resp = api.mod_thread(thread_id, "delete").await?;
+                    println!("{}", resp.message);
+                }
+                ModAction::RestoreThread { thread_id } => {
+                    let resp = api.mod_thread(thread_id, "restore").await?;
                     println!("{}", resp.message);
                 }
                 ModAction::Ban { username } => {

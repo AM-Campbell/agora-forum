@@ -8,7 +8,7 @@ mod validation;
 use axum::{
     extract::DefaultBodyLimit,
     middleware,
-    routing::{delete, get, post, put},
+    routing::{get, post, put},
     Router,
 };
 use tower_http::set_header::SetResponseHeaderLayer;
